@@ -37,6 +37,28 @@
             max-height: calc(100vh - 22rem);
             overflow-y: auto;
         }
+        .virtual-tree-row {
+            height: 26px;
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+            line-height: 1;
+        }
+        .virtual-tree-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .folder-toggle-btn {
+            width: 1rem;
+            margin-right: 0.25rem;
+            background: transparent;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+            color: #6b7280;
+            line-height: 1;
+            flex: 0 0 auto;
+        }
         .fade-enter {
             opacity: 0;
             transition: opacity 0.3s;
@@ -323,8 +345,21 @@
                     <i class="fas fa-sync-alt"></i>
                     Refresh Folder
                 </button>
+                <button id="restoreBtn" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 flex items-center gap-2" data-tippy-content="Restore previously saved folder access after a page reload.">
+                    <i class="fas fa-history"></i>
+                    Restore Last Folder
+                </button>
                 <div class="text-gray-600 italic" id="selectedPath" data-tippy-content="Shows the path of the folder you've selected. Empty if none chosen."></div>
             </div>
+            <div class="text-xs text-gray-600" id="folderPickerHint">Note: browsers block some protected/system folders. If blocked, choose a project subfolder.</div>
+            <details class="text-xs text-gray-600 bg-gray-50 rounded p-2" id="diagnosticsPanel">
+                <summary class="cursor-pointer">Diagnostics</summary>
+                <pre id="diagnosticsLog" class="mt-2 whitespace-pre-wrap break-all"></pre>
+                <div class="mt-2 flex gap-2">
+                    <button id="copyDiagnosticsBtn" type="button" class="bg-gray-300 text-black px-2 py-1 rounded hover:bg-gray-400">Copy Diagnostics</button>
+                    <button id="clearDiagnosticsBtn" type="button" class="bg-gray-300 text-black px-2 py-1 rounded hover:bg-gray-400">Clear</button>
+                </div>
+            </details>
             <div class="text-gray-600 italic" id="gitignoreStatus" data-tippy-content="Indicates whether a .gitignore or default ignores are applied to filter out certain files."></div>
             
             <div id="loadingIndicator" class="hidden" data-tippy-content="Loading... Shows progress while scanning or processing files.">
@@ -350,6 +385,10 @@
                 <button id="selectAllBtn" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2" data-tippy-content="Select or deselect all currently visible text files.">
                     <i class="fas fa-check-double"></i>
                     Toggle Select All Text Files
+                </button>
+                <button id="clearAllBtn" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700 flex items-center gap-2" data-tippy-content="Clear all selected files, including ones currently not visible.">
+                    <i class="fas fa-times-circle"></i>
+                    Clear All Selections
                 </button>
             </div>
 
@@ -534,16 +573,13 @@
     <script src="https://cdn.jsdelivr.net/npm/html-minifier-terser@7.0.0/dist/html-minifier-terser.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/csso@5.0.5/dist/csso.min.js"></script>
     <script>
-        // Make dark mode the default
-        localStorage.setItem('darkModeEnabled', 'true');
-        document.documentElement.classList.add('dark');
-    </script>
-    <script>
-        tippy('[data-tippy-content]', {
-            theme: 'light-border',
-            delay: [200, 100],
-            maxWidth: 250,
-        });
+        // Default dark mode on first run, but honor persisted preference afterward.
+        const savedDarkMode = localStorage.getItem('darkModeEnabled');
+        const darkModeEnabled = savedDarkMode === null ? true : savedDarkMode === 'true';
+        if (savedDarkMode === null) {
+            localStorage.setItem('darkModeEnabled', 'true');
+        }
+        document.documentElement.classList.toggle('dark', darkModeEnabled);
     </script>
     <script>
         class GitIgnore {
@@ -652,6 +688,8 @@
         const gitignoreStatus = document.getElementById('gitignoreStatus');
         const fileTree = document.getElementById('fileTree');
         const selectAllBtn = document.getElementById('selectAllBtn');
+        const clearAllBtn = document.getElementById('clearAllBtn');
+        const restoreBtn = document.getElementById('restoreBtn');
         const combineBtn = document.getElementById('combineBtn');
         const output = document.getElementById('output');
         const combinedOutput = document.getElementById('combinedOutput');
@@ -686,6 +724,9 @@
 
         const clearFilterSelectionsBtn = document.getElementById('clearFilterSelectionsBtn');
         const fileTypeFilterButtons = document.querySelectorAll('button[data-filter-type]');
+        const diagnosticsLog = document.getElementById('diagnosticsLog');
+        const copyDiagnosticsBtn = document.getElementById('copyDiagnosticsBtn');
+        const clearDiagnosticsBtn = document.getElementById('clearDiagnosticsBtn');
 
         const minifyOutput = document.getElementById('minifyOutput');
         const minifyStats = document.getElementById('minifyStats');
@@ -694,25 +735,228 @@
         const commentStats = document.getElementById('commentStats');
 
         const darkModeToggle = document.getElementById('darkModeToggle');
+        darkModeToggle.innerHTML = document.documentElement.classList.contains('dark')
+            ? '<i class="fas fa-sun"></i>'
+            : '<i class="fas fa-moon"></i>';
         darkModeToggle.addEventListener('click', () => {
             const isDark = document.documentElement.classList.toggle('dark');
             localStorage.setItem('darkModeEnabled', isDark ? 'true' : 'false');
             darkModeToggle.innerHTML = isDark ? '<i class="fas fa-sun"></i>' : '<i class="fas fa-moon"></i>';
         });
 
-        let fileHandles = [];
+        let fileRecordsByPath = new Map();
+        let fileCheckboxByPath = new Map();
+        let folderCheckboxByPath = new Map();
+        let folderToChildFilePaths = new Map();
+        let ancestorFoldersByFilePath = new Map();
+        let selectedPaths = new Set();
+        let visibleFilePaths = new Set();
+        let filterVisibleFilePaths = new Set();
+        let selectedTotalSize = 0;
+        let selectedKnownLines = 0;
+        let selectedUnknownLineFiles = 0;
+        let folderVisibleFileCount = new Map();
+        let folderSelectedVisibleFileCount = new Map();
+        let treeRows = [];
+        let visibleTreeRows = [];
+        let rowVisibilityByPath = new Map();
+        let filterVisibilityByPath = new Map();
+        let rowAncestorsByPath = new Map();
+        let collapsedFolders = new Set();
+        let renderedFileCheckboxByPath = new Map();
+        let renderedFolderCheckboxByPath = new Map();
+        let virtualTreeInitialized = false;
+        let virtualTopSpacer = null;
+        let virtualRowsHost = null;
+        let virtualBottomSpacer = null;
+        let virtualRenderQueued = false;
         let folderHandle = null;
         let ignoreFilter = null;
         let pathToElement = {};
         let filterSelectedPaths = new Set();
+        let tooltipInitialized = false;
+        let filterDebounceTimer = null;
+        let filterQueryActive = false;
+        let transformWorkerBlobUrl = null;
+        let transformWorkerRequestId = 0;
+        let loadingMessageBase = '';
+        let loadingStartTime = 0;
+        let loadingHeartbeatTimer = null;
+        let loadingHeartbeatStep = 0;
+        let recentExpandedFolderPaths = [];
+        const RECENT_EXPANDED_PATHS_KEY = 'recentExpandedFolderPathsByFolder';
+        const RECENT_EXPANDED_PATHS_LIMIT = 80;
+        const VIRTUAL_ROW_HEIGHT = 26;
+        const VIRTUAL_OVERSCAN = 12;
+        const DIAGNOSTICS_MAX_ENTRIES = 60;
+        const HANDLE_DB_NAME = 'ysp-folder-handles';
+        const HANDLE_STORE_NAME = 'handles';
+        const LAST_FOLDER_HANDLE_KEY = 'last-read-folder-handle-v1';
+        let diagnosticsEntries = [];
+        let unreadableEntriesCount = 0;
+
+        function summarizeError(error) {
+            if (!error || typeof error !== 'object') {
+                return { name: 'Error', message: String(error || '') };
+            }
+            return {
+                name: error.name ? String(error.name) : 'Error',
+                message: error.message ? String(error.message) : ''
+            };
+        }
+
+        function appendDiagnostic(event, details = {}) {
+            const timestamp = new Date().toISOString();
+            let renderedDetails = '';
+            try {
+                renderedDetails = JSON.stringify(details);
+            } catch {
+                renderedDetails = '{"error":"could not serialize diagnostic details"}';
+            }
+            diagnosticsEntries.push(`[${timestamp}] ${event} ${renderedDetails}`);
+            if (diagnosticsEntries.length > DIAGNOSTICS_MAX_ENTRIES) {
+                diagnosticsEntries = diagnosticsEntries.slice(-DIAGNOSTICS_MAX_ENTRIES);
+            }
+            if (diagnosticsLog) {
+                diagnosticsLog.textContent = diagnosticsEntries.join('\n');
+            }
+        }
+
+        function openHandleDb() {
+            return new Promise((resolve, reject) => {
+                if (!('indexedDB' in window)) {
+                    reject(new Error('indexedDB unavailable'));
+                    return;
+                }
+                const request = indexedDB.open(HANDLE_DB_NAME, 1);
+                request.onupgradeneeded = () => {
+                    const db = request.result;
+                    if (!db.objectStoreNames.contains(HANDLE_STORE_NAME)) {
+                        db.createObjectStore(HANDLE_STORE_NAME);
+                    }
+                };
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error || new Error('Failed to open handle DB'));
+            });
+        }
+
+        async function idbSetValue(key, value) {
+            const db = await openHandleDb();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+                tx.oncomplete = () => {
+                    db.close();
+                    resolve();
+                };
+                tx.onerror = () => {
+                    const err = tx.error || new Error('IDB write failed');
+                    db.close();
+                    reject(err);
+                };
+                tx.objectStore(HANDLE_STORE_NAME).put(value, key);
+            });
+        }
+
+        async function idbGetValue(key) {
+            const db = await openHandleDb();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(HANDLE_STORE_NAME, 'readonly');
+                const request = tx.objectStore(HANDLE_STORE_NAME).get(key);
+                request.onsuccess = () => {
+                    const value = request.result;
+                    db.close();
+                    resolve(value || null);
+                };
+                request.onerror = () => {
+                    const err = request.error || new Error('IDB read failed');
+                    db.close();
+                    reject(err);
+                };
+            });
+        }
+
+        async function persistLastFolderHandle(handle) {
+            if (!handle) return;
+            try {
+                await idbSetValue(LAST_FOLDER_HANDLE_KEY, handle);
+                appendDiagnostic('handle-persisted', { name: handle.name || '' });
+            } catch (error) {
+                appendDiagnostic('handle-persist-failed', summarizeError(error));
+            }
+        }
+
+        async function loadPersistedFolderHandleIfGranted(options = {}) {
+            const allowPrompt = options.allowPrompt === true;
+            try {
+                const handle = await idbGetValue(LAST_FOLDER_HANDLE_KEY);
+                if (!handle) {
+                    appendDiagnostic('handle-restore-none');
+                    return null;
+                }
+                if (typeof handle.queryPermission !== 'function') {
+                    appendDiagnostic('handle-restore-invalid');
+                    return null;
+                }
+                let permission = await handle.queryPermission({ mode: 'read' });
+                appendDiagnostic('handle-restore-query', {
+                    name: handle.name || '',
+                    permission
+                });
+                if (permission === 'prompt' && allowPrompt && typeof handle.requestPermission === 'function') {
+                    permission = await handle.requestPermission({ mode: 'read' });
+                    appendDiagnostic('handle-restore-request', {
+                        name: handle.name || '',
+                        permission
+                    });
+                }
+                if (permission === 'granted') {
+                    return handle;
+                }
+                appendDiagnostic('handle-restore-not-granted', {
+                    name: handle.name || '',
+                    permission
+                });
+                return null;
+            } catch (error) {
+                appendDiagnostic('handle-restore-failed', summarizeError(error));
+                return null;
+            }
+        }
+
+        if (copyDiagnosticsBtn) {
+            copyDiagnosticsBtn.addEventListener('click', async () => {
+                const text = diagnosticsEntries.join('\n');
+                if (!text) {
+                    showGlobalMessage('No diagnostics to copy yet.', 'info');
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(text);
+                    showGlobalMessage('Diagnostics copied to clipboard.', 'success');
+                } catch (err) {
+                    const details = describeError(err, 'Copy diagnostics');
+                    showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
+                }
+            });
+        }
+
+        if (clearDiagnosticsBtn) {
+            clearDiagnosticsBtn.addEventListener('click', () => {
+                diagnosticsEntries = [];
+                if (diagnosticsLog) diagnosticsLog.textContent = '';
+                showGlobalMessage('Diagnostics cleared.', 'success');
+            });
+        }
 
         function showGlobalMessage(message, type = 'error') {
             const messageDiv = document.getElementById('globalMessage');
             messageDiv.textContent = message;
-            messageDiv.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+            messageDiv.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700', 'bg-yellow-100', 'text-yellow-800');
             messageDiv.classList.add('rounded-lg', 'p-4', 'text-sm', 'shadow-lg');
             if (type === 'error') {
                 messageDiv.classList.add('bg-red-100', 'text-red-700');
+            } else if (type === 'info') {
+                messageDiv.classList.add('bg-yellow-100', 'text-yellow-800');
             } else {
                 messageDiv.classList.add('bg-green-100', 'text-green-700');
             }
@@ -720,6 +964,198 @@
                 messageDiv.classList.add('hidden');
             }, 5000);
         }
+
+        function describeError(error, context = 'operation') {
+            const name = error && typeof error === 'object' && error.name ? String(error.name) : 'Error';
+            const message = error && typeof error === 'object' && typeof error.message === 'string'
+                ? error.message.trim()
+                : (typeof error === 'string' ? error.trim() : '');
+            const technical = message ? `${name}: ${message}` : name;
+
+            if (name === 'AbortError') {
+                const lowerMessage = message.toLowerCase();
+                const likelyProtectedFolder =
+                    lowerMessage.includes('system') ||
+                    lowerMessage.includes('protected') ||
+                    lowerMessage.includes('not allowed') ||
+                    lowerMessage.includes('security');
+                return {
+                    cancelled: true,
+                    userMessage: likelyProtectedFolder
+                        ? `${context} blocked by browser because that folder is protected/system-managed. Choose a project subfolder instead. (${technical})`
+                        : `${context} canceled or blocked by browser (this can happen with protected/system folders). (${technical})`,
+                    technical
+                };
+            }
+            if (name === 'NotAllowedError') {
+                return {
+                    cancelled: false,
+                    userMessage: `${context} blocked by browser or OS permissions. (${technical})`,
+                    technical
+                };
+            }
+            if (name === 'SecurityError') {
+                return {
+                    cancelled: false,
+                    userMessage: `${context} blocked by browser security policy. (${technical})`,
+                    technical
+                };
+            }
+            if (name === 'TypeError' && (message.includes('showDirectoryPicker') || context.toLowerCase().includes('folder'))) {
+                return {
+                    cancelled: false,
+                    userMessage: `Folder picker is unavailable in this browser/context. (${technical})`,
+                    technical
+                };
+            }
+
+            return {
+                cancelled: false,
+                userMessage: message ? `${context} failed. (${technical})` : `${context} failed. (${name})`,
+                technical
+            };
+        }
+
+        function isLikelyProtectedFolderError(error) {
+            if (!error || typeof error !== 'object') return false;
+            const name = typeof error.name === 'string' ? error.name : '';
+            const message = typeof error.message === 'string' ? error.message.toLowerCase() : '';
+            if (name !== 'AbortError' && name !== 'NotAllowedError' && name !== 'SecurityError') {
+                return false;
+            }
+            return (
+                message.includes('system') ||
+                message.includes('protected') ||
+                message.includes('not allowed') ||
+                message.includes('security') ||
+                message.includes('permission')
+            );
+        }
+
+        async function pickDirectoryHandleWithFallback() {
+            const preferredOptions = {
+                id: 'your-source-to-prompt-folder',
+                mode: 'read',
+                startIn: folderHandle ? folderHandle : 'documents'
+            };
+            appendDiagnostic('picker-attempt-1', {
+                hasPriorHandle: !!folderHandle,
+                startIn: typeof preferredOptions.startIn === 'string' ? preferredOptions.startIn : 'prior-handle',
+                mode: preferredOptions.mode
+            });
+            try {
+                const handle = await window.showDirectoryPicker(preferredOptions);
+                appendDiagnostic('picker-attempt-1-success', { selectedName: handle && handle.name ? handle.name : '' });
+                return handle;
+            } catch (firstError) {
+                appendDiagnostic('picker-attempt-1-failed', summarizeError(firstError));
+                // Retry once with minimal, non-sticky options when browser rejects
+                // a remembered/system start location.
+                if (!isLikelyProtectedFolderError(firstError)) {
+                    throw firstError;
+                }
+                try {
+                    appendDiagnostic('picker-attempt-2', { mode: 'read', startIn: 'default' });
+                    const handle = await window.showDirectoryPicker({
+                        mode: 'read'
+                    });
+                    appendDiagnostic('picker-attempt-2-success', { selectedName: handle && handle.name ? handle.name : '' });
+                    return handle;
+                } catch (secondError) {
+                    appendDiagnostic('picker-attempt-2-failed', summarizeError(secondError));
+                    const firstName = firstError && firstError.name ? String(firstError.name) : 'Error';
+                    const firstMessage = firstError && firstError.message ? String(firstError.message) : '';
+                    const secondName = secondError && secondError.name ? String(secondError.name) : 'Error';
+                    const secondMessage = secondError && secondError.message ? String(secondError.message) : '';
+                    const combined = new Error(
+                        `Directory picker failed twice. First attempt (${firstName}): ${firstMessage || 'no message'}. ` +
+                        `Retry attempt (${secondName}): ${secondMessage || 'no message'}.`
+                    );
+                    combined.name = secondName;
+                    throw combined;
+                }
+            }
+        }
+
+        function loadRecentExpandedFolderPaths() {
+            try {
+                const raw = localStorage.getItem(RECENT_EXPANDED_PATHS_KEY);
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    // Backward compatibility with older storage format.
+                    return parsed.filter(path => typeof path === 'string');
+                }
+                if (!parsed || typeof parsed !== 'object') return [];
+                const scopedPaths = parsed[getExpandedPathsStorageScope()];
+                if (!Array.isArray(scopedPaths)) return [];
+                return scopedPaths.filter(path => typeof path === 'string');
+            } catch {
+                return [];
+            }
+        }
+
+        function getExpandedPathsStorageScope() {
+            if (folderHandle && typeof folderHandle.name === 'string' && folderHandle.name.trim()) {
+                return `folder:${folderHandle.name}`;
+            }
+            return 'folder:__global__';
+        }
+
+        function saveRecentExpandedFolderPaths() {
+            try {
+                const raw = localStorage.getItem(RECENT_EXPANDED_PATHS_KEY);
+                let parsed = {};
+                if (raw) {
+                    const stored = JSON.parse(raw);
+                    if (stored && typeof stored === 'object' && !Array.isArray(stored)) {
+                        parsed = stored;
+                    }
+                }
+                parsed[getExpandedPathsStorageScope()] = recentExpandedFolderPaths.slice(0, RECENT_EXPANDED_PATHS_LIMIT);
+                localStorage.setItem(
+                    RECENT_EXPANDED_PATHS_KEY,
+                    JSON.stringify(parsed)
+                );
+            } catch {
+                // Ignore storage failures to avoid breaking main flow.
+            }
+        }
+
+        function touchRecentExpandedFolderPath(path) {
+            if (!path || typeof path !== 'string') return;
+            recentExpandedFolderPaths = [
+                path,
+                ...recentExpandedFolderPaths.filter(p => p !== path)
+            ].slice(0, RECENT_EXPANDED_PATHS_LIMIT);
+            saveRecentExpandedFolderPaths();
+        }
+
+        function removeRecentExpandedFolderPath(path) {
+            if (!path || typeof path !== 'string') return;
+            const next = recentExpandedFolderPaths.filter(p => p !== path);
+            if (next.length === recentExpandedFolderPaths.length) return;
+            recentExpandedFolderPaths = next;
+            saveRecentExpandedFolderPaths();
+        }
+
+        function applyRecentExpandedFolders() {
+            recentExpandedFolderPaths = recentExpandedFolderPaths.filter(path => folderCheckboxByPath.has(path));
+            saveRecentExpandedFolderPaths();
+            if (filterQueryActive) return;
+            for (const path of recentExpandedFolderPaths) {
+                collapsedFolders.delete(path);
+            }
+        }
+
+        recentExpandedFolderPaths = loadRecentExpandedFolderPaths();
+        appendDiagnostic('environment', {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            protocol: window.location.protocol,
+            origin: window.location.origin,
+            secureContext: window.isSecureContext
+        });
 
         includePreamble.addEventListener('change', () => {
             preambleOptions.classList.toggle('hidden', !includePreamble.checked);
@@ -732,12 +1168,50 @@
             goalOptions.classList.toggle('hidden', !includeGoal.checked);
         });
 
+        function renderLoadingMessage() {
+            if (loadingIndicator.classList.contains('hidden')) return;
+            const dots = '.'.repeat((loadingHeartbeatStep % 3) + 1);
+            const elapsedSeconds = loadingStartTime > 0
+                ? ((performance.now() - loadingStartTime) / 1000).toFixed(1)
+                : '0.0';
+            loadingText.textContent = `${loadingMessageBase} ${dots} (${elapsedSeconds}s)`;
+        }
+
+        function setLoadingMessage(message) {
+            loadingMessageBase = message;
+            renderLoadingMessage();
+        }
+
         function setLoading(isLoading, message = 'Processing folder contents...') {
             loadingIndicator.classList.toggle('hidden', !isLoading);
-            loadingText.textContent = message;
+            if (isLoading) {
+                loadingStartTime = performance.now();
+                loadingHeartbeatStep = 0;
+                if (loadingHeartbeatTimer) {
+                    clearInterval(loadingHeartbeatTimer);
+                    loadingHeartbeatTimer = null;
+                }
+                setLoadingMessage(message);
+                loadingHeartbeatTimer = setInterval(() => {
+                    loadingHeartbeatStep += 1;
+                    renderLoadingMessage();
+                }, 350);
+            } else {
+                if (loadingHeartbeatTimer) {
+                    clearInterval(loadingHeartbeatTimer);
+                    loadingHeartbeatTimer = null;
+                }
+                loadingMessageBase = '';
+                loadingStartTime = 0;
+                loadingText.textContent = 'Processing folder contents...';
+            }
             folderBtn.disabled = isLoading;
             refreshBtn.disabled = isLoading;
+            if (restoreBtn) {
+                restoreBtn.disabled = isLoading;
+            }
             selectAllBtn.disabled = isLoading;
+            clearAllBtn.disabled = isLoading;
             combineBtn.disabled = isLoading;
             savePresetBtn.disabled = isLoading;
             loadPresetBtn.disabled = isLoading;
@@ -769,13 +1243,60 @@
             ];
              // Check for exact matches for files without extensions
             const exactMatches = ['Makefile', 'Dockerfile'];
+            const lowerName = name.toLowerCase();
+            const dotfileTextNames = new Set([
+                '.gitignore',
+                '.gitattributes',
+                '.dockerignore',
+                '.npmignore',
+                '.eslintignore',
+                '.prettierignore',
+                '.editorconfig',
+                '.npmrc',
+                '.yarnrc',
+                '.yarnrc.yml',
+                '.pnpmfile.cjs',
+                '.pnpmfile.js',
+                '.nvmrc',
+                '.node-version',
+                '.tool-versions',
+                '.prettierrc',
+                '.prettierrc.json',
+                '.prettierrc.yaml',
+                '.prettierrc.yml',
+                '.prettierrc.js',
+                '.prettierrc.cjs',
+                '.eslintrc',
+                '.eslintrc.json',
+                '.eslintrc.yaml',
+                '.eslintrc.yml',
+                '.eslintrc.js',
+                '.eslintrc.cjs',
+                '.babelrc',
+                '.babelrc.json',
+                '.stylelintrc',
+                '.stylelintrc.json',
+                '.stylelintrc.yaml',
+                '.stylelintrc.yml',
+                '.stylelintrc.js',
+                '.stylelintrc.cjs'
+            ]);
 
             // First check exact matches
             if (exactMatches.includes(name)) {
                 return true;
             }
+            if (dotfileTextNames.has(lowerName)) {
+                return true;
+            }
+            if (lowerName.startsWith('.env')) {
+                return true;
+            }
+            if (lowerName.startsWith('.') && lowerName.endsWith('rc')) {
+                return true;
+            }
             // Then check extensions
-            return textExtensions.some(ext => name.toLowerCase().endsWith(ext));
+            return textExtensions.some(ext => lowerName.endsWith(ext));
         }
 
         async function tryReadGitignore(dirHandle) {
@@ -798,25 +1319,226 @@
             }
         }
 
-        async function getFileSizeAndLines(fileHandle) {
-            const file = await fileHandle.getFile();
-            const size = file.size;
-            let lines = 0;
-            if (isTextFile(fileHandle.name)) {
-                const content = await file.text();
-                lines = content.split('\n').length;
-            }
-            return { size, lines };
+        async function yieldToMainThread() {
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
 
-        async function buildFileTree(handle, path = '', container = fileTree, depth = 0) {
-            const entries = [];
-            for await (const entry of handle.values()) {
-                entries.push(entry);
-                if (entries.length % 100 === 0) {
-                    loadingText.textContent = `Processing folder contents... (${entries.length} items found)`;
+        function getAncestorFolders(path) {
+            const parts = path.split('/');
+            if (parts.length <= 1) return [];
+            const ancestors = [];
+            let currentPath = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+                currentPath = i === 0 ? parts[i] : `${currentPath}/${parts[i]}`;
+                ancestors.push(currentPath);
+            }
+            return ancestors;
+        }
+
+        function ensureVirtualTreeScaffold() {
+            if (!virtualTreeInitialized) {
+                fileTree.addEventListener('scroll', () => {
+                    scheduleVirtualTreeRender();
+                }, { passive: true });
+                window.addEventListener('resize', () => {
+                    scheduleVirtualTreeRender();
+                });
+                virtualTreeInitialized = true;
+            }
+
+            fileTree.innerHTML = '';
+            virtualTopSpacer = document.createElement('div');
+            virtualRowsHost = document.createElement('div');
+            virtualBottomSpacer = document.createElement('div');
+            fileTree.appendChild(virtualTopSpacer);
+            fileTree.appendChild(virtualRowsHost);
+            fileTree.appendChild(virtualBottomSpacer);
+        }
+
+        function scheduleVirtualTreeRender() {
+            if (virtualRenderQueued) return;
+            virtualRenderQueued = true;
+            requestAnimationFrame(() => {
+                virtualRenderQueued = false;
+                renderVirtualTree();
+            });
+        }
+
+        function createTreeRowElement(row) {
+            const rowDiv = document.createElement('div');
+            rowDiv.className = 'virtual-tree-row';
+            rowDiv.style.paddingLeft = `${row.depth * 18}px`;
+
+            if (row.kind === 'directory') {
+                rowDiv.classList.add('font-bold', 'folder-name');
+                const toggleBtn = document.createElement('button');
+                toggleBtn.type = 'button';
+                toggleBtn.className = 'folder-toggle-btn';
+                toggleBtn.dataset.role = 'toggle-folder';
+                toggleBtn.dataset.path = row.path;
+                toggleBtn.textContent = collapsedFolders.has(row.path) ? '▶' : '▼';
+                rowDiv.appendChild(toggleBtn);
+
+                const folderCheckbox = document.createElement('input');
+                folderCheckbox.type = 'checkbox';
+                folderCheckbox.className = 'mr-2';
+                folderCheckbox.dataset.path = row.path;
+                folderCheckbox.dataset.type = 'directory';
+                renderedFolderCheckboxByPath.set(row.path, folderCheckbox);
+                rowDiv.appendChild(folderCheckbox);
+
+                const folderLabel = document.createElement('span');
+                folderLabel.className = 'virtual-tree-label';
+                const selectedVisibleCount = folderSelectedVisibleFileCount.get(row.path) || 0;
+                const visibleCount = folderVisibleFileCount.get(row.path) || 0;
+                const counts = visibleCount > 0 ? ` (${selectedVisibleCount}/${visibleCount})` : '';
+                folderLabel.textContent = `📁 ${row.name}${counts}`;
+                rowDiv.appendChild(folderLabel);
+                return rowDiv;
+            }
+
+            if (row.isText) {
+                const fileCheckbox = document.createElement('input');
+                fileCheckbox.type = 'checkbox';
+                fileCheckbox.className = 'mr-2';
+                fileCheckbox.dataset.path = row.path;
+                fileCheckbox.dataset.type = 'file';
+                fileCheckbox.checked = selectedPaths.has(row.path);
+                renderedFileCheckboxByPath.set(row.path, fileCheckbox);
+                rowDiv.appendChild(fileCheckbox);
+            }
+
+            const label = document.createElement('span');
+            label.className = `virtual-tree-label ${row.isText ? 'text-gray-800' : 'text-gray-400'}`;
+            if (row.isText) {
+                const record = fileRecordsByPath.get(row.path);
+                const knownLines = record && record.lines !== null ? ` | ${record.lines.toLocaleString()} lines` : '';
+                label.textContent = `📄 ${row.name} (${(row.size / 1024).toFixed(2)} KB${knownLines})`;
+            } else {
+                label.textContent = `📄 ${row.name} (non-text file)`;
+            }
+            rowDiv.appendChild(label);
+            return rowDiv;
+        }
+
+        function recomputeRenderedRowsFromVisibility() {
+            visibleTreeRows = [];
+            for (const row of treeRows) {
+                let isVisible = filterVisibilityByPath.get(row.path) === true;
+                if (isVisible && !filterQueryActive) {
+                    const ancestors = rowAncestorsByPath.get(row.path) || [];
+                    for (const ancestorPath of ancestors) {
+                        if (collapsedFolders.has(ancestorPath)) {
+                            isVisible = false;
+                            break;
+                        }
+                    }
+                }
+                rowVisibilityByPath.set(row.path, isVisible);
+                if (isVisible) {
+                    visibleTreeRows.push(row);
                 }
             }
+        }
+
+        function collapseAllFolders() {
+            collapsedFolders = new Set(folderCheckboxByPath.keys());
+        }
+
+        function renderVirtualTree() {
+            if (!virtualRowsHost || !virtualTopSpacer || !virtualBottomSpacer) {
+                return;
+            }
+
+            const totalRows = visibleTreeRows.length;
+            const viewportHeight = fileTree.clientHeight || 0;
+            const scrollTop = fileTree.scrollTop;
+            const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_ROW_HEIGHT) - VIRTUAL_OVERSCAN);
+            const endIndex = Math.min(
+                totalRows,
+                Math.ceil((scrollTop + viewportHeight) / VIRTUAL_ROW_HEIGHT) + VIRTUAL_OVERSCAN
+            );
+
+            const topHeight = startIndex * VIRTUAL_ROW_HEIGHT;
+            const bottomHeight = Math.max(0, (totalRows - endIndex) * VIRTUAL_ROW_HEIGHT);
+            virtualTopSpacer.style.height = `${topHeight}px`;
+            virtualBottomSpacer.style.height = `${bottomHeight}px`;
+
+            renderedFileCheckboxByPath.clear();
+            renderedFolderCheckboxByPath.clear();
+
+            const fragment = document.createDocumentFragment();
+            for (let i = startIndex; i < endIndex; i++) {
+                fragment.appendChild(createTreeRowElement(visibleTreeRows[i]));
+            }
+            virtualRowsHost.replaceChildren(fragment);
+            updateFolderCheckboxes();
+        }
+
+        function resetRuntimeState() {
+            fileRecordsByPath = new Map();
+            fileCheckboxByPath = new Map();
+            folderCheckboxByPath = new Map();
+            folderToChildFilePaths = new Map();
+            ancestorFoldersByFilePath = new Map();
+            selectedPaths = new Set();
+            visibleFilePaths = new Set();
+            filterVisibleFilePaths = new Set();
+            selectedTotalSize = 0;
+            selectedKnownLines = 0;
+            selectedUnknownLineFiles = 0;
+            folderVisibleFileCount = new Map();
+            folderSelectedVisibleFileCount = new Map();
+            treeRows = [];
+            visibleTreeRows = [];
+            rowVisibilityByPath = new Map();
+            filterVisibilityByPath = new Map();
+            rowAncestorsByPath = new Map();
+            collapsedFolders = new Set();
+            renderedFileCheckboxByPath = new Map();
+            renderedFolderCheckboxByPath = new Map();
+            pathToElement = {};
+            filterSelectedPaths.clear();
+            filterQueryActive = false;
+            unreadableEntriesCount = 0;
+            ensureVirtualTreeScaffold();
+        }
+
+        function setKnownLineCount(path, lines) {
+            const record = fileRecordsByPath.get(path);
+            if (!record || record.lines !== null) return;
+            record.lines = lines;
+            if (selectedPaths.has(path)) {
+                selectedUnknownLineFiles = Math.max(0, selectedUnknownLineFiles - 1);
+                selectedKnownLines += lines;
+            }
+            scheduleVirtualTreeRender();
+        }
+
+        async function getTextFileSize(fileHandle) {
+            const file = await fileHandle.getFile();
+            return file.size;
+        }
+
+        async function buildFileTree(handle, path = '', depth = 0) {
+            const entries = [];
+            try {
+                for await (const entry of handle.values()) {
+                    entries.push(entry);
+                    if (entries.length % 200 === 0) {
+                        setLoadingMessage(`Scanning folders (${entries.length} items found in ${path || '.'})`);
+                        await yieldToMainThread();
+                    }
+                }
+            } catch (error) {
+                unreadableEntriesCount += 1;
+                appendDiagnostic('scan-enumerate-failed', {
+                    path: path || '.',
+                    error: summarizeError(error)
+                });
+                return;
+            }
+
             entries.sort((a, b) => {
                 if (a.kind === b.kind) return a.name.localeCompare(b.name);
                 return a.kind === 'directory' ? -1 : 1;
@@ -828,68 +1550,249 @@
                 if (ignoreFilter && ignoreFilter.ignores(entryPath)) {
                     continue;
                 }
-
-                const isLast = i === entries.length - 1;
-                const div = document.createElement('div');
-                div.className = `tree-line ${isLast ? 'tree-last' : ''}`;
-                if (depth > 0) {
-                    div.classList.add('tree-indent');
-                }
-
-                pathToElement[entryPath] = div;
+                const rowAncestors = getAncestorFolders(entryPath);
 
                 if (entry.kind === 'directory') {
-                    const folderDiv = document.createElement('div');
-                    folderDiv.className = 'font-bold mb-1 folder-name flex items-center gap-2';
-                    const folderCheckbox = document.createElement('input');
-                    folderCheckbox.type = 'checkbox';
-                    folderCheckbox.className = 'mr-2';
-                    folderCheckbox.dataset.path = entryPath;
-                    folderCheckbox.dataset.type = 'directory';
-                    folderCheckbox.setAttribute('data-tippy-content', 'Check/uncheck this folder to select/deselect all its text files.');
-                    folderDiv.appendChild(folderCheckbox);
-                    const folderLabel = document.createElement('span');
-                    folderLabel.textContent = `📁 ${entry.name}`;
-                    folderLabel.setAttribute('data-tippy-content', 'Folder in your project. Check its box to select all files inside.');
-                    folderDiv.appendChild(folderLabel);
-                    div.appendChild(folderDiv);
+                    folderToChildFilePaths.set(entryPath, []);
+                    folderVisibleFileCount.set(entryPath, 0);
+                    folderSelectedVisibleFileCount.set(entryPath, 0);
+                    folderCheckboxByPath.set(entryPath, true);
 
-                    const subContainer = document.createElement('div');
-                    div.appendChild(subContainer);
-                    const subHandle = await handle.getDirectoryHandle(entry.name);
-                    await buildFileTree(subHandle, entryPath, subContainer, depth + 1);
+                    const row = {
+                        path: entryPath,
+                        name: entry.name,
+                        kind: 'directory',
+                        depth,
+                        isText: false,
+                        size: 0
+                    };
+                    treeRows.push(row);
+                    pathToElement[entryPath] = row;
+                    rowAncestorsByPath.set(entryPath, rowAncestors);
+                    filterVisibilityByPath.set(entryPath, true);
+                    rowVisibilityByPath.set(entryPath, true);
+
+                    await buildFileTree(entry, entryPath, depth + 1);
                 } else {
-                    const fileHandle = await handle.getFileHandle(entry.name);
-                    const { size, lines } = await getFileSizeAndLines(fileHandle);
-                    const isText = isTextFile(entry.name);
+                    let isText = isTextFile(entry.name);
+                    let size = null;
+
                     if (isText) {
-                        fileHandles.push({ handle: fileHandle, path: entryPath, size, lines });
+                        try {
+                            size = await getTextFileSize(entry);
+                        } catch (error) {
+                            unreadableEntriesCount += 1;
+                            appendDiagnostic('scan-file-read-failed', {
+                                path: entryPath,
+                                error: summarizeError(error)
+                            });
+                            isText = false;
+                            size = 0;
+                        }
                     }
-                    const fileDiv = document.createElement('div');
-                    fileDiv.className = 'flex items-center mb-1';
                     if (isText) {
-                        const checkbox = document.createElement('input');
-                        checkbox.type = 'checkbox';
-                        checkbox.className = 'mr-2';
-                        checkbox.dataset.path = entryPath;
-                        checkbox.dataset.type = 'file';
-                        checkbox.setAttribute('data-tippy-content', 'Check this file to include it in the combined output.');
-                        fileDiv.appendChild(checkbox);
+                        fileRecordsByPath.set(entryPath, {
+                            handle: entry,
+                            path: entryPath,
+                            size,
+                            lines: null
+                        });
+                        fileCheckboxByPath.set(entryPath, true);
+
+                        const ancestors = getAncestorFolders(entryPath);
+                        ancestorFoldersByFilePath.set(entryPath, ancestors);
+                        for (const folderPath of ancestors) {
+                            if (!folderToChildFilePaths.has(folderPath)) {
+                                folderToChildFilePaths.set(folderPath, []);
+                                folderVisibleFileCount.set(folderPath, 0);
+                                folderSelectedVisibleFileCount.set(folderPath, 0);
+                            }
+                            folderToChildFilePaths.get(folderPath).push(entryPath);
+                        }
                     }
-                    const label = document.createElement('span');
-                    label.className = isText ? 'text-gray-800' : 'text-gray-400';
-                    if (isText) {
-                        label.textContent = `📄 ${entry.name} (${(size / 1024).toFixed(2)} KB | ${lines.toLocaleString()} lines)`;
-                        label.setAttribute('data-tippy-content', 'A selectable text file. Check to include in the combined output.');
-                    } else {
-                        label.textContent = `📄 ${entry.name} (non-text file)`;
-                        label.setAttribute('data-tippy-content', 'Non-text file; cannot be included in the combined output.');
-                    }
-                    fileDiv.appendChild(label);
-                    div.appendChild(fileDiv);
+
+                    const row = {
+                        path: entryPath,
+                        name: entry.name,
+                        kind: 'file',
+                        depth,
+                        isText,
+                        size: isText ? size : 0
+                    };
+                    treeRows.push(row);
+                    pathToElement[entryPath] = row;
+                    rowAncestorsByPath.set(entryPath, rowAncestors);
+                    filterVisibilityByPath.set(entryPath, true);
+                    rowVisibilityByPath.set(entryPath, true);
                 }
-                container.appendChild(div);
+
+                if (i % 300 === 0 && i > 0) {
+                    await yieldToMainThread();
+                }
             }
+        }
+
+        async function scanCurrentFolder() {
+            if (!folderHandle) return;
+            selectedPath.textContent = `Selected folder: ${folderHandle.name}`;
+            fileTree.innerHTML = '';
+            resetRuntimeState();
+            setLoading(true);
+            await yieldToMainThread();
+            appendDiagnostic('scan-start', { root: folderHandle.name });
+            try {
+                await tryReadGitignore(folderHandle);
+                await buildFileTree(folderHandle);
+                collapseAllFolders();
+                applyRecentExpandedFolders();
+                applyFilter();
+                updateTally();
+                appendDiagnostic('scan-complete', {
+                    root: folderHandle.name,
+                    rows: treeRows.length,
+                    folders: folderCheckboxByPath.size,
+                    textFiles: fileCheckboxByPath.size,
+                    unreadableEntries: unreadableEntriesCount
+                });
+                if (unreadableEntriesCount > 0) {
+                    showGlobalMessage(`Scan completed with ${unreadableEntriesCount} unreadable entries skipped. See Diagnostics.`, 'info');
+                }
+                loadPresetsFromStorage();
+                refreshBtn.classList.remove('hidden');
+                const warningDiv = document.getElementById('folderWarning');
+                if (warningDiv) warningDiv.classList.add('hidden');
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function tryRestoreLastFolderHandleOnLoad() {
+            const restoredHandle = await loadPersistedFolderHandleIfGranted();
+            if (!restoredHandle) return;
+            folderHandle = restoredHandle;
+            recentExpandedFolderPaths = loadRecentExpandedFolderPaths();
+            appendDiagnostic('handle-restored', { name: folderHandle.name || '' });
+            try {
+                await scanCurrentFolder();
+                showGlobalMessage(`Restored folder: ${folderHandle.name}`, 'success');
+            } catch (error) {
+                const details = describeError(error, 'Restore folder');
+                appendDiagnostic('handle-restore-scan-failed', {
+                    technical: details.technical,
+                    userMessage: details.userMessage
+                });
+                showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
+            }
+        }
+
+        function refreshFolderCheckboxState(folderPath) {
+            const checkbox = renderedFolderCheckboxByPath.get(folderPath);
+            if (!checkbox) return;
+            const visibleCount = folderVisibleFileCount.get(folderPath) || 0;
+            const selectedVisibleCount = folderSelectedVisibleFileCount.get(folderPath) || 0;
+            checkbox.checked = visibleCount > 0 && selectedVisibleCount === visibleCount;
+            checkbox.indeterminate = selectedVisibleCount > 0 && selectedVisibleCount < visibleCount;
+        }
+
+        function updateFolderCheckboxes() {
+            for (const folderPath of folderCheckboxByPath.keys()) {
+                refreshFolderCheckboxState(folderPath);
+            }
+        }
+
+        function applyFolderSelectionDeltas(folderDeltaByPath) {
+            for (const [folderPath, delta] of folderDeltaByPath.entries()) {
+                const current = folderSelectedVisibleFileCount.get(folderPath) || 0;
+                folderSelectedVisibleFileCount.set(folderPath, Math.max(0, current + delta));
+                refreshFolderCheckboxState(folderPath);
+            }
+        }
+
+        function recomputeVisibilityState() {
+            visibleFilePaths = new Set();
+            filterVisibleFilePaths = new Set();
+            folderVisibleFileCount = new Map();
+            folderSelectedVisibleFileCount = new Map();
+
+            for (const folderPath of folderCheckboxByPath.keys()) {
+                folderVisibleFileCount.set(folderPath, 0);
+                folderSelectedVisibleFileCount.set(folderPath, 0);
+            }
+
+            for (const filePath of fileCheckboxByPath.keys()) {
+                const isFilterVisible = filterVisibilityByPath.get(filePath) === true;
+                if (isFilterVisible) {
+                    filterVisibleFilePaths.add(filePath);
+                }
+                if (rowVisibilityByPath.get(filePath)) {
+                    visibleFilePaths.add(filePath);
+                }
+                if (!isFilterVisible) continue;
+                const isSelected = selectedPaths.has(filePath);
+                const ancestors = ancestorFoldersByFilePath.get(filePath) || [];
+                for (const folderPath of ancestors) {
+                    folderVisibleFileCount.set(folderPath, (folderVisibleFileCount.get(folderPath) || 0) + 1);
+                    if (isSelected) {
+                        folderSelectedVisibleFileCount.set(folderPath, (folderSelectedVisibleFileCount.get(folderPath) || 0) + 1);
+                    }
+                }
+            }
+        }
+
+        function bulkSetFileSelection(paths, shouldSelect, options = {}) {
+            const folderDeltaByPath = new Map();
+            let changed = false;
+            const trackFilterSelections = options.trackFilterSelections === true;
+            const clearFilterSelections = options.clearFilterSelections === true;
+
+            for (const path of paths) {
+                if (!fileCheckboxByPath.has(path)) continue;
+                const checkbox = renderedFileCheckboxByPath.get(path);
+                if (checkbox) {
+                    checkbox.checked = shouldSelect;
+                }
+
+                const wasSelected = selectedPaths.has(path);
+                if (wasSelected === shouldSelect) {
+                    if (clearFilterSelections && !shouldSelect) {
+                        filterSelectedPaths.delete(path);
+                    }
+                    continue;
+                }
+
+                const record = fileRecordsByPath.get(path);
+                if (!record) continue;
+                changed = true;
+
+                if (shouldSelect) {
+                    selectedPaths.add(path);
+                    selectedTotalSize += record.size;
+                    if (record.lines === null) selectedUnknownLineFiles += 1;
+                    else selectedKnownLines += record.lines;
+                    if (trackFilterSelections) {
+                        filterSelectedPaths.add(path);
+                    }
+                } else {
+                    selectedPaths.delete(path);
+                    selectedTotalSize = Math.max(0, selectedTotalSize - record.size);
+                    if (record.lines === null) selectedUnknownLineFiles = Math.max(0, selectedUnknownLineFiles - 1);
+                    else selectedKnownLines = Math.max(0, selectedKnownLines - record.lines);
+                    if (clearFilterSelections) {
+                        filterSelectedPaths.delete(path);
+                    }
+                }
+
+                if (filterVisibleFilePaths.has(path)) {
+                    const delta = shouldSelect ? 1 : -1;
+                    const ancestors = ancestorFoldersByFilePath.get(path) || [];
+                    for (const folderPath of ancestors) {
+                        folderDeltaByPath.set(folderPath, (folderDeltaByPath.get(folderPath) || 0) + delta);
+                    }
+                }
+            }
+
+            applyFolderSelectionDeltas(folderDeltaByPath);
+            return changed;
         }
 
         function showPresetMessage(message, type = 'error') {
@@ -924,10 +1827,9 @@
                 showPresetMessage('Please enter a preset name.');
                 return;
             }
-            const selectedPaths = Array.from(fileTree.querySelectorAll('input[type="checkbox"]:checked[data-type="file"]'))
-                .map(cb => cb.dataset.path);
+            const selectedPathsForPreset = Array.from(selectedPaths).sort((a, b) => a.localeCompare(b));
             const settings = {
-                files: selectedPaths,
+                files: selectedPathsForPreset,
                 preamble: {
                     enabled: includePreamble.checked,
                     mode: preambleSelect.value,
@@ -962,17 +1864,20 @@
                 showPresetMessage('Preset not found.');
                 return;
             }
-            const checkboxes = fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]');
-            checkboxes.forEach(cb => cb.checked = false);
+            bulkSetFileSelection(Array.from(selectedPaths), false, { clearFilterSelections: true });
+            filterSelectedPaths.clear();
             let missing = [];
-            preset.files.forEach(p => {
-                const cb = Array.from(checkboxes).find(c => c.dataset.path === p);
-                if (cb) {
-                    cb.checked = true;
+            const restorablePresetPaths = [];
+            for (const p of preset.files) {
+                if (fileCheckboxByPath.has(p)) {
+                    restorablePresetPaths.push(p);
                 } else {
                     missing.push(p);
                 }
-            });
+            }
+            if (restorablePresetPaths.length > 0) {
+                bulkSetFileSelection(restorablePresetPaths, true);
+            }
             if (preset.preamble) {
                 includePreamble.checked = preset.preamble.enabled;
                 preambleOptions.classList.toggle('hidden', !preset.preamble.enabled);
@@ -1039,72 +1944,120 @@
         exportPresetsBtn.addEventListener('click', exportPresetsToFile);
 
         folderBtn.addEventListener('click', async () => {
+            if (typeof window.showDirectoryPicker !== 'function') {
+                const msg = 'Folder picker is not supported here. Use a recent Chromium-based browser.';
+                selectedPath.textContent = msg;
+                showGlobalMessage(msg, 'error');
+                appendDiagnostic('picker-not-supported', {
+                    protocol: window.location.protocol,
+                    origin: window.location.origin,
+                    secureContext: window.isSecureContext
+                });
+                return;
+            }
             try {
-                folderHandle = await window.showDirectoryPicker();
-                selectedPath.textContent = `Selected folder: ${folderHandle.name}`;
-                fileTree.innerHTML = '';
-                fileHandles = [];
-                pathToElement = {};
-                setLoading(true);
-                await tryReadGitignore(folderHandle);
-                await buildFileTree(folderHandle);
-                setLoading(false);
-                loadPresetsFromStorage();
-                applyTooltips();
-                refreshBtn.classList.remove('hidden');
-                const warningDiv = document.getElementById('folderWarning');
-                if (warningDiv) warningDiv.classList.add('hidden');
+                appendDiagnostic('select-folder-clicked');
+                folderHandle = await pickDirectoryHandleWithFallback();
+                // Persist in background; never block folder selection on storage.
+                void persistLastFolderHandle(folderHandle);
+                recentExpandedFolderPaths = loadRecentExpandedFolderPaths();
+                appendDiagnostic('folder-selected', { name: folderHandle.name });
+                await scanCurrentFolder();
             } catch (err) {
-                console.error('Error selecting folder:', err);
-                selectedPath.textContent = 'Error selecting folder. Please try again.';
+                const details = describeError(err, 'Select folder');
+                console.error('Error selecting folder:', details.technical, err);
+                selectedPath.textContent = details.userMessage;
+                showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
+                appendDiagnostic('folder-select-error', {
+                    technical: details.technical,
+                    userMessage: details.userMessage
+                });
                 setLoading(false);
                 const warningDiv = document.getElementById('folderWarning');
                 if (warningDiv) warningDiv.classList.remove('hidden');
             }
         });
 
-        selectAllBtn.addEventListener('click', () => {
-            const checkboxes = Array.from(fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]'));
-            const visibleCheckboxes = checkboxes.filter(cb => cb.closest('.tree-line').style.display !== 'none');
-            const allChecked = visibleCheckboxes.every(cb => cb.checked);
-            visibleCheckboxes.forEach(cb => cb.checked = !allChecked);
-            updateFolderCheckboxes();
-            updateTally();
-        });
-
-        function updateFolderCheckboxes() {
-            const folderCheckboxes = fileTree.querySelectorAll('input[type="checkbox"][data-type="directory"]');
-            folderCheckboxes.forEach(folderCb => {
-                const folderPath = folderCb.dataset.path;
-                const childFiles = fileTree.querySelectorAll(`input[type="checkbox"][data-type="file"][data-path^="${folderPath}/"]`);
-                const visibleChildFiles = Array.from(childFiles).filter(cf => cf.closest('.tree-line').style.display !== 'none');
-                if (visibleChildFiles.length > 0) {
-                    folderCb.checked = visibleChildFiles.every(c => c.checked);
-                } else {
-                    folderCb.checked = false;
+        if (restoreBtn) {
+            restoreBtn.addEventListener('click', async () => {
+                try {
+                    appendDiagnostic('restore-clicked');
+                    const restoredHandle = await loadPersistedFolderHandleIfGranted({ allowPrompt: true });
+                    if (!restoredHandle) {
+                        showGlobalMessage('No restorable folder available. Select a folder once, then use Restore Last Folder after reload.', 'info');
+                        return;
+                    }
+                    folderHandle = restoredHandle;
+                    recentExpandedFolderPaths = loadRecentExpandedFolderPaths();
+                    appendDiagnostic('handle-restored-manual', { name: folderHandle.name || '' });
+                    await scanCurrentFolder();
+                    showGlobalMessage(`Restored folder: ${folderHandle.name}`, 'success');
+                } catch (err) {
+                    const details = describeError(err, 'Restore last folder');
+                    console.error('Error restoring folder:', details.technical, err);
+                    showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
+                    appendDiagnostic('handle-restore-manual-error', {
+                        technical: details.technical,
+                        userMessage: details.userMessage
+                    });
                 }
             });
         }
+
+        selectAllBtn.addEventListener('click', () => {
+            const targetPaths = filterQueryActive
+                ? Array.from(filterVisibleFilePaths)
+                : Array.from(fileCheckboxByPath.keys());
+            const allChecked = targetPaths.length > 0 && targetPaths.every(path => selectedPaths.has(path));
+            bulkSetFileSelection(targetPaths, !allChecked);
+            updateTally();
+            updateFolderCheckboxes();
+        });
+
+        clearAllBtn.addEventListener('click', () => {
+            const allSelectedPaths = Array.from(selectedPaths);
+            bulkSetFileSelection(allSelectedPaths, false, { clearFilterSelections: true });
+            filterSelectedPaths.clear();
+            updateTally();
+            updateFolderCheckboxes();
+        });
+
+        fileTree.addEventListener('click', (e) => {
+            const toggleButton = e.target.closest('button[data-role="toggle-folder"]');
+            if (!toggleButton) return;
+            const folderPath = toggleButton.dataset.path;
+            if (!folderPath) return;
+
+            if (collapsedFolders.has(folderPath)) {
+                collapsedFolders.delete(folderPath);
+                touchRecentExpandedFolderPath(folderPath);
+            } else {
+                collapsedFolders.add(folderPath);
+                removeRecentExpandedFolderPath(folderPath);
+            }
+            recomputeRenderedRowsFromVisibility();
+            recomputeVisibilityState();
+            scheduleVirtualTreeRender();
+        });
 
         fileTree.addEventListener('change', (e) => {
             const target = e.target;
             if (target.matches('input[type="checkbox"][data-type="directory"]')) {
                 const folderPath = target.dataset.path;
-                const childFiles = fileTree.querySelectorAll(`input[type="checkbox"][data-type="file"][data-path^="${folderPath}/"]`);
-                childFiles.forEach(cf => {
-                    if (cf.closest('.tree-line').style.display !== 'none') {
-                        if (!target.checked && filterSelectedPaths.has(cf.dataset.path)) {
-                            filterSelectedPaths.delete(cf.dataset.path);
-                        }
-                        cf.checked = target.checked;
-                    }
+                const folderChildren = folderToChildFilePaths.get(folderPath) || [];
+                const visibleChildren = folderChildren.filter(path => filterVisibleFilePaths.has(path));
+                bulkSetFileSelection(visibleChildren, target.checked, {
+                    clearFilterSelections: !target.checked
                 });
+                refreshFolderCheckboxState(folderPath);
             } else if (target.matches('input[type="checkbox"][data-type="file"]') && !target.checked) {
                 if (filterSelectedPaths.has(target.dataset.path)) {
                     filterSelectedPaths.delete(target.dataset.path);
                 }
+                bulkSetFileSelection([target.dataset.path], false);
+            } else if (target.matches('input[type="checkbox"][data-type="file"]') && target.checked) {
+                bulkSetFileSelection([target.dataset.path], true);
             }
-            updateFolderCheckboxes();
             updateTally();
         });
 
@@ -1223,33 +2176,325 @@
             return processedLines.join('\n');
         }
 
+        function getTransformWorkerBlobUrl() {
+            if (transformWorkerBlobUrl) {
+                return transformWorkerBlobUrl;
+            }
+
+            const workerSource = `
+const JS_MINIFIER_URL = 'https://cdn.jsdelivr.net/npm/terser@5.14.2/dist/bundle.min.js';
+const HTML_MINIFIER_URL = 'https://cdn.jsdelivr.net/npm/html-minifier-terser@7.0.0/dist/html-minifier-terser.min.js';
+const CSS_MINIFIER_URL = 'https://cdn.jsdelivr.net/npm/csso@5.0.5/dist/csso.min.js';
+
+let libsLoaded = false;
+const textEncoder = new TextEncoder();
+
+function byteSize(text) {
+    return textEncoder.encode(text).length;
+}
+
+function ensureLibrariesLoaded() {
+    if (libsLoaded) return;
+    importScripts(JS_MINIFIER_URL, HTML_MINIFIER_URL, CSS_MINIFIER_URL);
+    libsLoaded = true;
+}
+
+function removeCommentsFromCodeWorker(path, content) {
+    const ext = path.toLowerCase();
+    let result = content;
+    if (ext.endsWith('.js') || ext.endsWith('.jsx') || ext.endsWith('.ts') || ext.endsWith('.tsx') || ext.endsWith('.java') || ext.endsWith('.go') || ext.endsWith('.c') || ext.endsWith('.cpp') || ext.endsWith('.h') || ext.endsWith('.rs') || ext.endsWith('.php')) {
+        result = result.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');
+        result = result.replace(/(^|\\s)\\/\\/.*$/gm, '');
+    } else if (ext.endsWith('.py') || ext.endsWith('.rb')) {
+        result = result.replace(/^\\s*#.*$/gm, '');
+    } else if (ext.endsWith('.html') || ext.endsWith('.htm')) {
+        result = result.replace(/<!--[\\s\\S]*?-->/g, '');
+    } else if (ext.endsWith('.css')) {
+        result = result.replace(/\\/\\*[\\s\\S]*?\\*\\//g, '');
+    }
+    return result.split('\\n').map(line => line.trimEnd()).join('\\n');
+}
+
+async function minifyContentWorker(path, content) {
+    const lowerPath = path.toLowerCase();
+    if (lowerPath.endsWith('.js') || lowerPath.endsWith('.jsx') || lowerPath.endsWith('.mjs') || lowerPath.endsWith('.cjs') || lowerPath.endsWith('.ts') || lowerPath.endsWith('.tsx')) {
+        try {
+            const result = await self.Terser.minify(content);
+            return result.code || content;
+        } catch {
+            return content;
+        }
+    } else if (lowerPath.endsWith('.css')) {
+        try {
+            const result = self.csso.minify(content);
+            return result.css || content;
+        } catch {
+            return content;
+        }
+    } else if (lowerPath.endsWith('.html') || lowerPath.endsWith('.htm')) {
+        try {
+            return await self.htmlMinifierTerser.minify(content, {
+                collapseWhitespace: true,
+                removeComments: true,
+                minifyCSS: true,
+                minifyJS: true
+            });
+        } catch {
+            return content;
+        }
+    } else if (lowerPath.endsWith('.json')) {
+        try {
+            return JSON.stringify(JSON.parse(content));
+        } catch {
+            return content;
+        }
+    }
+    return content.split('\\n').map(line => line.trimEnd()).join('\\n');
+}
+
+self.onmessage = async (event) => {
+    const data = event.data || {};
+    if (data.type !== 'transform-batch') return;
+
+    const id = data.id;
+    const files = Array.isArray(data.files) ? data.files : [];
+    const options = data.options || {};
+    const useRemoveComments = options.removeComments === true;
+    const useMinify = options.minify === true;
+
+    try {
+        if (useMinify) {
+            ensureLibrariesLoaded();
+        }
+
+        const transformedFiles = [];
+        let afterCommentTotalSize = 0;
+        let afterCommentTotalLines = 0;
+        let afterMinifyTotalSize = 0;
+        let afterMinifyTotalLines = 0;
+
+        for (const f of files) {
+            let afterComments = f.content;
+            if (useRemoveComments) {
+                afterComments = removeCommentsFromCodeWorker(f.path, afterComments);
+            }
+            afterCommentTotalSize += byteSize(afterComments);
+            afterCommentTotalLines += afterComments.split('\\n').length;
+
+            let finalContent = afterComments;
+            if (useMinify) {
+                finalContent = await minifyContentWorker(f.path, afterComments);
+            }
+            afterMinifyTotalSize += byteSize(finalContent);
+            afterMinifyTotalLines += finalContent.split('\\n').length;
+
+            transformedFiles.push({ path: f.path, content: finalContent });
+        }
+
+        self.postMessage({
+            id,
+            ok: true,
+            transformedFiles,
+            stats: {
+                afterCommentTotalSize,
+                afterCommentTotalLines,
+                afterMinifyTotalSize,
+                afterMinifyTotalLines
+            }
+        });
+    } catch (error) {
+        self.postMessage({
+            id,
+            ok: false,
+            error: error && error.message ? error.message : String(error)
+        });
+    }
+};
+`;
+
+            const blob = new Blob([workerSource], { type: 'text/javascript' });
+            transformWorkerBlobUrl = URL.createObjectURL(blob);
+            return transformWorkerBlobUrl;
+        }
+
+        function shouldUseWorkerTransform(options, fileCount, totalBytes) {
+            if (typeof Worker === 'undefined') return false;
+            if (!options || (!options.removeComments && !options.minify)) return false;
+            return fileCount >= 20 || totalBytes >= 512 * 1024;
+        }
+
+        function runWorkerTransformBatch(worker, files, options) {
+            return new Promise((resolve, reject) => {
+                const requestId = ++transformWorkerRequestId;
+                const timeoutMs = 90000;
+                let timeoutHandle = null;
+
+                const onMessage = (event) => {
+                    const data = event.data || {};
+                    if (data.id !== requestId) return;
+                    cleanup();
+                    if (!data.ok) {
+                        reject(new Error(data.error || 'Worker transform failed'));
+                        return;
+                    }
+                    resolve(data);
+                };
+
+                const onError = (event) => {
+                    cleanup();
+                    reject(new Error(event.message || 'Worker transform crashed'));
+                };
+
+                const cleanup = () => {
+                    if (timeoutHandle) {
+                        clearTimeout(timeoutHandle);
+                        timeoutHandle = null;
+                    }
+                    worker.removeEventListener('message', onMessage);
+                    worker.removeEventListener('error', onError);
+                };
+
+                worker.addEventListener('message', onMessage);
+                worker.addEventListener('error', onError);
+                timeoutHandle = setTimeout(() => {
+                    cleanup();
+                    reject(new Error('Worker transform timed out'));
+                }, timeoutMs);
+                worker.postMessage({
+                    type: 'transform-batch',
+                    id: requestId,
+                    files,
+                    options
+                });
+            });
+        }
+
+        async function transformFilesWithWorker(selectedFiles, options, updateStatus) {
+            const worker = new Worker(getTransformWorkerBlobUrl());
+            const transformedFiles = [];
+            let afterCommentTotalSize = 0;
+            let afterCommentTotalLines = 0;
+            let afterMinifyTotalSize = 0;
+            let afterMinifyTotalLines = 0;
+            const chunkSize = 25;
+
+            try {
+                for (let offset = 0; offset < selectedFiles.length; offset += chunkSize) {
+                    const chunk = selectedFiles.slice(offset, offset + chunkSize);
+                    const completed = Math.min(offset + chunk.length, selectedFiles.length);
+                    if (typeof updateStatus === 'function') {
+                        updateStatus(`Transforming (worker) ${completed}/${selectedFiles.length} files...`);
+                    }
+
+                    const result = await runWorkerTransformBatch(worker, chunk, options);
+                    transformedFiles.push(...(result.transformedFiles || []));
+
+                    const stats = result.stats || {};
+                    afterCommentTotalSize += stats.afterCommentTotalSize || 0;
+                    afterCommentTotalLines += stats.afterCommentTotalLines || 0;
+                    afterMinifyTotalSize += stats.afterMinifyTotalSize || 0;
+                    afterMinifyTotalLines += stats.afterMinifyTotalLines || 0;
+                    await yieldToMainThread();
+                }
+            } finally {
+                worker.terminate();
+            }
+
+            return {
+                transformedFiles,
+                afterCommentTotalSize,
+                afterCommentTotalLines,
+                afterMinifyTotalSize,
+                afterMinifyTotalLines
+            };
+        }
+
+        async function transformFilesInMainThread(selectedFiles, options, updateStatus) {
+            const transformedFiles = [];
+            let afterCommentTotalSize = 0;
+            let afterCommentTotalLines = 0;
+            let afterMinifyTotalSize = 0;
+            let afterMinifyTotalLines = 0;
+
+            for (let i = 0; i < selectedFiles.length; i++) {
+                const f = selectedFiles[i];
+                if (typeof updateStatus === 'function') {
+                    updateStatus(`Transforming ${i + 1}/${selectedFiles.length}: ${f.path}`);
+                }
+
+                let afterComments = f.content;
+                if (options.removeComments) {
+                    afterComments = removeCommentsFromCode(f.path, afterComments);
+                }
+
+                const commentSize = new Blob([afterComments]).size;
+                const commentLines = afterComments.split('\n').length;
+                afterCommentTotalSize += commentSize;
+                afterCommentTotalLines += commentLines;
+
+                let finalContent = afterComments;
+                if (options.minify) {
+                    finalContent = await minifyContent(f.path, afterComments);
+                }
+
+                const minifiedSize = new Blob([finalContent]).size;
+                const minifiedLines = finalContent.split('\n').length;
+                afterMinifyTotalSize += minifiedSize;
+                afterMinifyTotalLines += minifiedLines;
+                transformedFiles.push({ path: f.path, content: finalContent });
+
+                if ((i + 1) % 20 === 0) {
+                    await yieldToMainThread();
+                }
+            }
+
+            return {
+                transformedFiles,
+                afterCommentTotalSize,
+                afterCommentTotalLines,
+                afterMinifyTotalSize,
+                afterMinifyTotalLines
+            };
+        }
+
         combineBtn.addEventListener('click', async () => {
-            const selectedPaths = Array.from(fileTree.querySelectorAll('input[type="checkbox"]:checked[data-type="file"]'))
-                .map(cb => cb.dataset.path);
-            if (selectedPaths.length === 0) {
+            const selectedPathsForCombine = Array.from(selectedPaths).sort((a, b) => a.localeCompare(b));
+            if (selectedPathsForCombine.length === 0) {
                 showGlobalMessage('Please select at least one text file');
                 return;
             }
+
+            const safePercent = (numerator, denominator) => {
+                if (!denominator) return '0.0';
+                return ((numerator / denominator) * 100).toFixed(1);
+            };
+
             setLoading(true, 'Combining selected files...');
+            await yieldToMainThread();
             try {
                 const selectedFiles = [];
                 let originalTotalSize = 0;
                 let originalTotalLines = 0;
 
-                for (const path of selectedPaths) {
-                    loadingText.textContent = `Processing: ${path}`;
-                    const fh = fileHandles.find(f => f.path === path);
-                    if (!fh) continue;
-                    const file = await fh.handle.getFile();
-                    const content = await file.text();
-                    selectedFiles.push({
-                        path,
-                        content,
-                        size: fh.size,
-                        lines: fh.lines
-                    });
-                    originalTotalSize += fh.size;
-                    originalTotalLines += fh.lines;
+                for (let i = 0; i < selectedPathsForCombine.length; i++) {
+                    const path = selectedPathsForCombine[i];
+                    const record = fileRecordsByPath.get(path);
+                    if (!record) continue;
+
+                    setLoadingMessage(`Reading ${i + 1}/${selectedPathsForCombine.length}: ${path}`);
+                    const file = await record.handle.getFile();
+                    const rawContent = await file.text();
+                    const content = rawContent.trim();
+                    const lines = content.split('\n').length;
+
+                    setKnownLineCount(path, lines);
+                    selectedFiles.push({ path, content, size: record.size, lines });
+                    originalTotalSize += record.size;
+                    originalTotalLines += lines;
+
+                    if ((i + 1) % 25 === 0) {
+                        await yieldToMainThread();
+                    }
                 }
 
                 let finalOutput = '';
@@ -1265,50 +2510,48 @@
                     finalOutput += "Project Structure:\n" + asciiSummary + "\n\n";
                 }
 
+                const transformOptions = {
+                    removeComments: removeComments.checked,
+                    minify: minifyOutput.checked
+                };
+
+                let transformResult;
+                const totalSelectedSize = selectedFiles.reduce((acc, file) => acc + file.size, 0);
+                if (shouldUseWorkerTransform(transformOptions, selectedFiles.length, totalSelectedSize)) {
+                    try {
+                        transformResult = await transformFilesWithWorker(
+                            selectedFiles,
+                            transformOptions,
+                            (message) => { setLoadingMessage(message); }
+                        );
+                    } catch (workerError) {
+                        console.warn('Worker transform failed; falling back to main thread.', workerError);
+                        transformResult = await transformFilesInMainThread(
+                            selectedFiles,
+                            transformOptions,
+                            (message) => { setLoadingMessage(message); }
+                        );
+                    }
+                } else {
+                    transformResult = await transformFilesInMainThread(
+                        selectedFiles,
+                        transformOptions,
+                        (message) => { setLoadingMessage(message); }
+                    );
+                }
+
+                const {
+                    transformedFiles,
+                    afterCommentTotalSize,
+                    afterCommentTotalLines,
+                    afterMinifyTotalSize,
+                    afterMinifyTotalLines
+                } = transformResult;
+
                 let combinedContent = '';
-                let afterCommentTotalSize = 0;
-                let afterCommentTotalLines = 0;
-                let afterMinifyTotalSize = 0;
-                let afterMinifyTotalLines = 0;
-
-                // Remove comments first if checked
-                for (const f of selectedFiles) {
-                    let fileContent = f.content.trim();
-                    if (removeComments.checked) {
-                        fileContent = removeCommentsFromCode(f.path, fileContent);
-                    }
-                    const linesCount = fileContent.split('\n').length;
-                    const sizeCount = new Blob([fileContent]).size;
-                    afterCommentTotalSize += sizeCount;
-                    afterCommentTotalLines += linesCount;
-                }
-
-                let intermediateFiles = selectedFiles.map(f => {
-                    let fileContent = f.content.trim();
-                    if (removeComments.checked) {
-                        fileContent = removeCommentsFromCode(f.path, fileContent);
-                    }
-                    return { path: f.path, content: fileContent };
-                });
-
-                // Then minify if checked
-                if (minifyOutput.checked) {
-                    let tempFiles = [];
-                    for (const f of intermediateFiles) {
-                        let minContent = await minifyContent(f.path, f.content);
-                        tempFiles.push({ path: f.path, content: minContent });
-                    }
-                    intermediateFiles = tempFiles;
-                }
-
-                // After all transformations
-                for (const f of intermediateFiles) {
+                for (const f of transformedFiles) {
                     combinedContent += `---\n${f.path}\n---\n${f.content}\n\n`;
                 }
-
-                // Compute final stats
-                const finalSize = new Blob([combinedContent]).size;
-                const finalLines = combinedContent.split('\n').length;
 
                 finalOutput += combinedContent.trim();
                 combinedOutput.value = finalOutput;
@@ -1318,9 +2561,9 @@
 
                 if (removeComments.checked) {
                     const savedSize = ((originalTotalSize - afterCommentTotalSize) / 1024).toFixed(2);
-                    const sizePct = ((originalTotalSize - afterCommentTotalSize) / originalTotalSize * 100).toFixed(1);
-                    const savedLines = (originalTotalLines - afterCommentTotalLines);
-                    const linePct = (savedLines / originalTotalLines * 100).toFixed(1);
+                    const sizePct = safePercent(originalTotalSize - afterCommentTotalSize, originalTotalSize);
+                    const savedLines = originalTotalLines - afterCommentTotalLines;
+                    const linePct = safePercent(savedLines, originalTotalLines);
                     commentStats.textContent = `Removing comments saved ${savedSize} KB (${sizePct}%) and ${savedLines} lines (${linePct}%)`;
                     commentStats.classList.remove('hidden');
                 } else {
@@ -1328,18 +2571,21 @@
                 }
 
                 if (minifyOutput.checked) {
-                    const savedSize = ((afterCommentTotalSize - finalSize) / 1024).toFixed(2);
-                    const sizePct = ((afterCommentTotalSize - finalSize)/afterCommentTotalSize*100).toFixed(1);
-                    const savedLines = (afterCommentTotalLines - finalLines);
-                    const linePct = (savedLines / afterCommentTotalLines * 100).toFixed(1);
+                    const savedSize = ((afterCommentTotalSize - afterMinifyTotalSize) / 1024).toFixed(2);
+                    const sizePct = safePercent(afterCommentTotalSize - afterMinifyTotalSize, afterCommentTotalSize);
+                    const savedLines = afterCommentTotalLines - afterMinifyTotalLines;
+                    const linePct = safePercent(savedLines, afterCommentTotalLines);
                     minifyStats.textContent = `Minifying the outputs saved ${savedSize} KB (${sizePct}%) and ${savedLines} lines (${linePct}%)`;
                     minifyStats.classList.remove('hidden');
                 } else {
                     minifyStats.classList.add('hidden');
                 }
 
+                updateTally();
             } catch (error) {
-                showGlobalMessage('Error combining files: ' + error.message);
+                const details = describeError(error, 'Combine files');
+                console.error('Error combining files:', details.technical, error);
+                showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
             } finally {
                 setLoading(false);
             }
@@ -1360,7 +2606,9 @@
                 await navigator.clipboard.writeText(combinedOutput.value);
                 showGlobalMessage('Combined text copied to clipboard!', 'success');
             } catch (err) {
-                showGlobalMessage('Failed to copy: ' + err.message);
+                const details = describeError(err, 'Copy to clipboard');
+                console.error('Clipboard copy failed:', details.technical, err);
+                showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
             }
         });
 
@@ -1372,39 +2620,50 @@
                 return;
             }
 
-            // Store current selections
-            const selectedPaths = new Set(
-                Array.from(fileTree.querySelectorAll('input[type="checkbox"]:checked[data-type="file"]'))
-                    .map(cb => cb.dataset.path)
-            );
+            const previousSelectedPaths = new Set(selectedPaths);
+            const previousFilterSelectedPaths = new Set(filterSelectedPaths);
 
-            // Clear current tree and handles
             fileTree.innerHTML = '';
-            fileHandles = [];
-            pathToElement = {};
+            resetRuntimeState();
 
-            // Rescan folder
             setLoading(true, 'Refreshing folder contents...');
+            await yieldToMainThread();
             try {
+                appendDiagnostic('refresh-start', { root: folderHandle && folderHandle.name ? folderHandle.name : '' });
                 await tryReadGitignore(folderHandle);
                 await buildFileTree(folderHandle);
+                collapseAllFolders();
+                applyRecentExpandedFolders();
 
-                // Restore selections
-                const checkboxes = fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]');
-                checkboxes.forEach(cb => {
-                    if (selectedPaths.has(cb.dataset.path)) {
-                        cb.checked = true;
-                    }
-                });
+                const restorableSelections = Array.from(previousSelectedPaths).filter(path => fileCheckboxByPath.has(path));
+                bulkSetFileSelection(restorableSelections, true);
 
-                updateFolderCheckboxes();
+                filterSelectedPaths = new Set(
+                    Array.from(previousFilterSelectedPaths).filter(path => fileCheckboxByPath.has(path) && selectedPaths.has(path))
+                );
+
+                applyFilter();
                 updateTally();
                 refreshBtn.classList.remove('hidden');
                 showGlobalMessage('Folder refreshed successfully!', 'success');
-                applyTooltips();
+                appendDiagnostic('refresh-complete', {
+                    root: folderHandle && folderHandle.name ? folderHandle.name : '',
+                    rows: treeRows.length,
+                    folders: folderCheckboxByPath.size,
+                    textFiles: fileCheckboxByPath.size,
+                    unreadableEntries: unreadableEntriesCount
+                });
+                if (unreadableEntriesCount > 0) {
+                    showGlobalMessage(`Refresh completed with ${unreadableEntriesCount} unreadable entries skipped. See Diagnostics.`, 'info');
+                }
             } catch (err) {
-                console.error('Error refreshing folder:', err);
-                showGlobalMessage('Error refreshing folder: ' + err.message, 'error');
+                const details = describeError(err, 'Refresh folder');
+                console.error('Error refreshing folder:', details.technical, err);
+                showGlobalMessage(details.userMessage, details.cancelled ? 'info' : 'error');
+                appendDiagnostic('refresh-error', {
+                    technical: details.technical,
+                    userMessage: details.userMessage
+                });
             } finally {
                 setLoading(false);
             }
@@ -1415,82 +2674,88 @@
         deletePresetBtn.addEventListener('click', deletePreset);
 
         function applyTooltips() {
+            if (tooltipInitialized) return;
             tippy('[data-tippy-content]', {
                 theme: 'light-border',
                 delay: [200, 100],
                 maxWidth: 250,
             });
+            tooltipInitialized = true;
         }
 
         function updateTally() {
-            const selectedCheckboxes = Array.from(fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]:checked'));
-            let totalSize = 0;
-            let totalLines = 0;
-            for (const cb of selectedCheckboxes) {
-                const fh = fileHandles.find(f => f.path === cb.dataset.path);
-                if (fh) {
-                    totalSize += fh.size;
-                    totalLines += fh.lines;
-                }
-            }
-            animateNumber(totalSizeDisplay, parseFloat(totalSizeDisplay.textContent.replace(' KB','')) || 0, (totalSize / 1024).toFixed(2), ' KB');
-            animateNumber(totalLinesDisplay, parseInt(totalLinesDisplay.textContent.replace(/,/g,''), 10) || 0, totalLines, '');
-            if ((totalSize / 1024) > 500) {
+            totalSizeDisplay.textContent = `${(selectedTotalSize / 1024).toFixed(2)} KB`;
+            totalLinesDisplay.textContent = selectedUnknownLineFiles > 0
+                ? `${selectedKnownLines.toLocaleString()} + ?`
+                : selectedKnownLines.toLocaleString();
+
+            if ((selectedTotalSize / 1024) > 500) {
                 tallyWarning.textContent = "Warning: probably too large to fit in Claude 3.5 Sonnet context window!";
-            } else if ((totalSize / 1024) > 200) {
+            } else if ((selectedTotalSize / 1024) > 200) {
                 tallyWarning.textContent = "Warning: probably too large to fit in GPT-4o or o1 context window!";
             } else {
                 tallyWarning.textContent = "";
             }
         }
 
-        function animateNumber(element, start, end, suffix) {
-            let current = start;
-            const increment = (end - start) / 30;
-            const step = () => {
-                current += increment;
-                if ((increment > 0 && current >= end) || (increment < 0 && current <= end)) {
-                    current = end;
-                } else {
-                    requestAnimationFrame(step);
-                }
-                element.textContent = Number(current).toLocaleString() + suffix;
-            };
-            requestAnimationFrame(step);
-        }
+        filterInput.addEventListener('input', () => {
+            if (filterDebounceTimer) {
+                clearTimeout(filterDebounceTimer);
+            }
+            filterDebounceTimer = setTimeout(() => {
+                applyFilter();
+                filterDebounceTimer = null;
+            }, 120);
+        });
 
-        fileTree.addEventListener('change', updateTally);
-
-        filterInput.addEventListener('input', applyFilter);
         clearFilterBtn.addEventListener('click', () => {
+            if (filterDebounceTimer) {
+                clearTimeout(filterDebounceTimer);
+                filterDebounceTimer = null;
+            }
             filterInput.value = '';
             applyFilter();
         });
 
         function applyFilter() {
             const query = filterInput.value.toLowerCase().trim();
+            filterQueryActive = query.length > 0;
             if (!query) {
-                for (const path in pathToElement) {
-                    pathToElement[path].style.display = '';
+                for (const row of treeRows) {
+                    filterVisibilityByPath.set(row.path, true);
                 }
+                recomputeRenderedRowsFromVisibility();
+                recomputeVisibilityState();
                 updateFolderCheckboxes();
-                return;
-            }
-            for (const path in pathToElement) {
-                pathToElement[path].style.display = 'none';
-            }
-            const matchedPaths = Object.keys(pathToElement).filter(p => p.toLowerCase().includes(query));
-            matchedPaths.forEach(p => {
-                let parts = p.split('/');
-                let currentPath = '';
-                for (let i = 0; i < parts.length; i++) {
-                    currentPath = i === 0 ? parts[i] : currentPath + '/' + parts[i];
-                    if (pathToElement[currentPath]) {
-                        pathToElement[currentPath].style.display = '';
-                    }
+            } else {
+                for (const row of treeRows) {
+                    filterVisibilityByPath.set(row.path, false);
                 }
-            });
-            updateFolderCheckboxes();
+
+                const matchedPaths = treeRows
+                    .map(row => row.path)
+                    .filter(path => path.toLowerCase().includes(query));
+
+                matchedPaths.forEach(p => {
+                    let parts = p.split('/');
+                    let currentPath = '';
+                    for (let i = 0; i < parts.length; i++) {
+                        currentPath = i === 0 ? parts[i] : currentPath + '/' + parts[i];
+                        if (pathToElement[currentPath]) {
+                            filterVisibilityByPath.set(currentPath, true);
+                        }
+                    }
+                });
+
+                recomputeRenderedRowsFromVisibility();
+                recomputeVisibilityState();
+                updateFolderCheckboxes();
+            }
+            const maxScrollTop = Math.max(0, (visibleTreeRows.length * VIRTUAL_ROW_HEIGHT) - fileTree.clientHeight);
+            if (fileTree.scrollTop > maxScrollTop) {
+                fileTree.scrollTop = maxScrollTop;
+            }
+            scheduleVirtualTreeRender();
         }
 
         const fileTypePatterns = {
@@ -1511,33 +2776,51 @@
             btn.addEventListener('click', () => {
                 const type = btn.dataset.filterType;
                 const patterns = fileTypePatterns[type] || [];
-                const fileCheckboxes = fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]');
+                const pathsToSelect = [];
 
-                for (const cb of fileCheckboxes) {
-                    const filePath = cb.dataset.path.toLowerCase();
+                for (const path of fileCheckboxByPath.keys()) {
+                    const filePath = path.toLowerCase();
                     if (patterns.some(ext => filePath.endsWith(ext))) {
-                        if (!cb.checked) {
-                            cb.checked = true;
-                            filterSelectedPaths.add(cb.dataset.path);
-                        }
+                        pathsToSelect.push(path);
                     }
                 }
-                updateFolderCheckboxes();
+
+                bulkSetFileSelection(pathsToSelect, true, { trackFilterSelections: true });
                 updateTally();
             });
         });
 
         clearFilterSelectionsBtn.addEventListener('click', () => {
-            const fileCheckboxes = fileTree.querySelectorAll('input[type="checkbox"][data-type="file"]');
-            for (const cb of fileCheckboxes) {
-                if (filterSelectedPaths.has(cb.dataset.path)) {
-                    cb.checked = false;
-                }
-            }
+            const pathsToClear = Array.from(filterSelectedPaths);
+            bulkSetFileSelection(pathsToClear, false, { clearFilterSelections: true });
             filterSelectedPaths.clear();
-            updateFolderCheckboxes();
             updateTally();
         });
+
+        window.addEventListener('beforeunload', () => {
+            if (transformWorkerBlobUrl) {
+                URL.revokeObjectURL(transformWorkerBlobUrl);
+                transformWorkerBlobUrl = null;
+            }
+        });
+
+        window.addEventListener('error', (event) => {
+            appendDiagnostic('window-error', {
+                message: event && event.message ? String(event.message) : '',
+                filename: event && event.filename ? String(event.filename) : '',
+                line: event && typeof event.lineno === 'number' ? event.lineno : null,
+                column: event && typeof event.colno === 'number' ? event.colno : null
+            });
+        });
+
+        window.addEventListener('unhandledrejection', (event) => {
+            const reason = event ? event.reason : null;
+            appendDiagnostic('unhandled-rejection', summarizeError(reason));
+        });
+
+        applyTooltips();
+        // Disabled for now while we stabilize folder selection reliability.
+        // We can re-enable once we verify restore flow is robust across environments.
     </script>
 </body>
 </html>
