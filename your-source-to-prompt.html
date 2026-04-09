@@ -117,31 +117,23 @@
         }
         .combine-button {
             pointer-events: auto;
-            background: linear-gradient(45deg, #22c55e, #16a34a);
+            background: #16a34a;
             color: white;
-            padding: 1rem 2rem;
+            padding: 0.85rem 1.5rem;
             border-radius: 0.5rem;
-            font-weight: bold;
-            transform: scale(1.1);
-            box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
-            border: 2px solid rgba(255, 255, 255, 0.2);
-            animation: pulse 2s infinite;
-            transition: all 0.3s ease;
+            font-weight: 600;
+            box-shadow: 0 6px 14px rgba(22, 163, 74, 0.2);
+            border: 1px solid #15803d;
+            transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
         }
         .combine-button:hover {
-            transform: scale(1.15);
-            box-shadow: 0 0 30px rgba(34, 197, 94, 0.6);
+            background: #15803d;
+            transform: translateY(-1px);
+            box-shadow: 0 10px 20px rgba(21, 128, 61, 0.25);
         }
-        @keyframes pulse {
-            0% {
-                box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
-            }
-            50% {
-                box-shadow: 0 0 30px rgba(34, 197, 94, 0.6);
-            }
-            100% {
-                box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
-            }
+        .combine-button:focus-visible {
+            outline: 2px solid #166534;
+            outline-offset: 2px;
         }
         .search-container {
             display: flex;
@@ -554,10 +546,22 @@
                 Combined Output
             </h2>
             <textarea id="combinedOutput" class="w-full h-96 p-2 border rounded font-mono text-sm" readonly data-tippy-content="This shows the combined text from all selected files."></textarea>
-            <div class="flex gap-4" data-tippy-content="Use these buttons to download or copy the combined output.">
+            <div class="flex flex-col sm:flex-row sm:items-end gap-3" data-tippy-content="Set a filename, then download or save your combined output.">
+                <div class="flex flex-col gap-1">
+                    <label for="downloadFilename" class="text-sm font-semibold text-gray-700">File Name</label>
+                    <input id="downloadFilename"
+                           type="text"
+                           value="combined_files.txt"
+                           class="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 min-w-[240px]"
+                           data-tippy-content="Set the filename used for download and save as." />
+                </div>
                 <button id="downloadBtn" class="mt-4 bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-600 flex items-center gap-2" data-tippy-content="Download the combined result as a text file.">
                     <i class="fas fa-download"></i>
                     Download Combined File
+                </button>
+                <button id="saveAsBtn" class="mt-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 flex items-center gap-2" data-tippy-content="Choose where to save and rename the file (supported browsers only).">
+                    <i class="fas fa-folder-open"></i>
+                    Save As...
                 </button>
                 <button id="copyBtn" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2" data-tippy-content="Copy the combined text to your clipboard.">
                     <i class="fas fa-copy"></i>
@@ -693,7 +697,9 @@
         const combineBtn = document.getElementById('combineBtn');
         const output = document.getElementById('output');
         const combinedOutput = document.getElementById('combinedOutput');
+        const downloadFilename = document.getElementById('downloadFilename');
         const downloadBtn = document.getElementById('downloadBtn');
+        const saveAsBtn = document.getElementById('saveAsBtn');
         const copyBtn = document.getElementById('copyBtn');
         const loadingIndicator = document.getElementById('loadingIndicator');
         const loadingText = document.getElementById('loadingText');
@@ -1016,6 +1022,44 @@
             };
         }
 
+        function getOutputFileName() {
+            const fallback = 'combined_files.txt';
+            let name = downloadFilename && typeof downloadFilename.value === 'string'
+                ? downloadFilename.value.trim()
+                : fallback;
+
+            if (!name) {
+                name = fallback;
+            }
+
+            // Strip characters that are invalid in common desktop filesystems.
+            name = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').replace(/\.+$/g, '');
+
+            if (!name) {
+                name = fallback;
+            }
+            if (!name.toLowerCase().endsWith('.txt')) {
+                name += '.txt';
+            }
+
+            if (downloadFilename) {
+                downloadFilename.value = name;
+            }
+            return name;
+        }
+
+        function triggerTextDownload(content, fileName) {
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+        }
+
         function isLikelyProtectedFolderError(error) {
             if (!error || typeof error !== 'object') return false;
             const name = typeof error.name === 'string' ? error.name : '';
@@ -1229,6 +1273,10 @@
             fileTypeFilterButtons.forEach(btn => btn.disabled = isLoading);
             minifyOutput.disabled = isLoading;
             removeComments.disabled = isLoading;
+            downloadFilename.disabled = isLoading;
+            downloadBtn.disabled = isLoading;
+            saveAsBtn.disabled = isLoading;
+            copyBtn.disabled = isLoading;
         }
 
         function isTextFile(name) {
@@ -2592,13 +2640,61 @@ self.onmessage = async (event) => {
         });
 
         downloadBtn.addEventListener('click', () => {
-            const blob = new Blob([combinedOutput.value], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'combined_files.txt';
-            a.click();
-            URL.revokeObjectURL(url);
+            const content = combinedOutput.value;
+            if (!content) {
+                showGlobalMessage('Nothing to download yet. Combine files first.', 'error');
+                return;
+            }
+
+            const fileName = getOutputFileName();
+            triggerTextDownload(content, fileName);
+            showGlobalMessage(`Downloaded ${fileName}`, 'success');
+        });
+
+        downloadFilename.addEventListener('blur', () => {
+            getOutputFileName();
+        });
+
+        saveAsBtn.addEventListener('click', async () => {
+            const content = combinedOutput.value;
+            if (!content) {
+                showGlobalMessage('Nothing to save yet. Combine files first.', 'error');
+                return;
+            }
+
+            const fileName = getOutputFileName();
+
+            // File System Access API support is currently Chromium-based.
+            if (typeof window.showSaveFilePicker !== 'function') {
+                triggerTextDownload(content, fileName);
+                showGlobalMessage('Save As is not supported in this browser. Downloaded instead.', 'info');
+                return;
+            }
+
+            try {
+                const handle = await window.showSaveFilePicker({
+                    suggestedName: fileName,
+                    types: [
+                        {
+                            description: 'Text Files',
+                            accept: { 'text/plain': ['.txt'] }
+                        }
+                    ]
+                });
+
+                const writable = await handle.createWritable();
+                await writable.write(content);
+                await writable.close();
+                showGlobalMessage(`Saved ${handle.name || fileName}`, 'success');
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    showGlobalMessage('Save cancelled.', 'info');
+                    return;
+                }
+                const details = describeError(err, 'Save As');
+                console.error('Save As failed:', details.technical, err);
+                showGlobalMessage(details.userMessage, 'error');
+            }
         });
 
         copyBtn.addEventListener('click', async () => {
