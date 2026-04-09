@@ -318,7 +318,6 @@
             <span>Total lines:</span>
             <span id="totalLinesDisplay" class="transition-number" data-tippy-content="Line counts help gauge complexity and length.">0</span>
         </div>
-        <div id="tallyWarning" class="tally-message" data-tippy-content="This message warns if your selection might be too large for certain model context windows."></div>
     </div>
 
     <div class="max-w-7xl mx-auto">
@@ -726,7 +725,6 @@
 
         const totalSizeDisplay = document.getElementById('totalSizeDisplay');
         const totalLinesDisplay = document.getElementById('totalLinesDisplay');
-        const tallyWarning = document.getElementById('tallyWarning');
 
         const clearFilterSelectionsBtn = document.getElementById('clearFilterSelectionsBtn');
         const fileTypeFilterButtons = document.querySelectorAll('button[data-filter-type]');
@@ -2785,13 +2783,6 @@ self.onmessage = async (event) => {
                 ? `${selectedKnownLines.toLocaleString()} + ?`
                 : selectedKnownLines.toLocaleString();
 
-            if ((selectedTotalSize / 1024) > 500) {
-                tallyWarning.textContent = "Warning: probably too large to fit in Claude 3.5 Sonnet context window!";
-            } else if ((selectedTotalSize / 1024) > 200) {
-                tallyWarning.textContent = "Warning: probably too large to fit in GPT-4o or o1 context window!";
-            } else {
-                tallyWarning.textContent = "";
-            }
         }
 
         filterInput.addEventListener('input', () => {
