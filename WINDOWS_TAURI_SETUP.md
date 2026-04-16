@@ -6,6 +6,8 @@ Document the native Windows validation path for the Tauri desktop shell.
 
 This exists because WSL is our default authoring environment, but **WSL is not native Windows validation**.
 
+For the unified setup guide that also covers WSL and native Linux, see [INSTALL.md](/home/graham/projects/your-source-to-prompt.html/INSTALL.md:1).
+
 ## Official Prerequisites
 
 According to the official Tauri v2 prerequisites documentation, Windows development requires:

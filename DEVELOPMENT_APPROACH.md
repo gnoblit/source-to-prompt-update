@@ -6,6 +6,8 @@ Define how we develop and validate this project while the architecture is transi
 
 This document exists so that environment assumptions are explicit, especially because we are currently developing inside **WSL**.
 
+For step-by-step setup instructions, see [INSTALL.md](/home/graham/projects/your-source-to-prompt.html/INSTALL.md:1).
+
 ## Current Working Assumption
 
 Primary day-to-day development happens in **WSL on Linux paths**.
@@ -112,12 +114,13 @@ Use this as the normal inner loop:
 ```bash
 npm test
 npm run tauri:doctor
+npm run tauri:check:fresh
 ```
 
-If the Linux Tauri prerequisites are installed:
+If you want to open the desktop shell from WSL without reusing a stale build target or stale staged frontend:
 
 ```bash
-npm run tauri:check
+npm run tauri:dev:fresh
 ```
 
 ### Linux Tauri Validation Loop
@@ -126,8 +129,8 @@ When GTK/WebKit packages are available:
 
 ```bash
 npm run tauri:doctor
-npm run tauri:check
-npm run tauri:dev
+npm run tauri:check:fresh
+npm run tauri:dev:fresh
 ```
 
 ### Windows Tauri Validation Loop
@@ -136,8 +139,8 @@ Run from native Windows, not from WSL:
 
 ```bash
 npm test
-npm run tauri:check
-npm run tauri:dev
+npm run tauri:check:fresh
+npm run tauri:dev:fresh
 ```
 
 The exact Windows prerequisite install can be documented separately, but the policy is simple:
@@ -156,12 +159,18 @@ For changes that affect the Tauri shell, the preferred validation ladder is:
 
 1. `npm test`
 2. `npm run tauri:doctor`
-3. `npm run tauri:check` on Linux when Linux prerequisites exist
-4. `npm run tauri:dev` smoke test on Linux
-5. `npm run tauri:check` on native Windows
-6. `npm run tauri:dev` smoke test on native Windows
+3. `npm run tauri:check:fresh` on Linux when Linux prerequisites exist
+4. `npm run tauri:dev:fresh` smoke test on Linux
+5. `npm run tauri:check:fresh` on native Windows
+6. `npm run tauri:dev:fresh` smoke test on native Windows
 
 If steps 3 through 6 are blocked by host prerequisites, that should be stated explicitly in status updates and docs.
+
+When `tauri dev` is running through the repo launcher:
+
+- `apps/tauri/.frontend-dist` stays synchronized with `apps/tauri/index.html`, `apps/tauri/src`, and shared `packages/*`
+- overlapping Tauri CLI runs are blocked so they do not stomp the shared staged frontend
+- WSL launches default to software-rendered WebKit settings to reduce common WSLg graphics issues
 
 ## Current Status
 
@@ -170,7 +179,9 @@ At the moment:
 - WSL is the active development environment
 - JS/unit/integration coverage is running successfully in WSL
 - Rust toolchain and Tauri CLI are installed locally in the workspace
-- Linux Tauri compile verification is blocked by missing GTK/WebKit system libraries
+- Linux dependency installation is available through `npm run tauri:deps:linux`
+- Linux Tauri compile verification is passing through `npm run tauri:check:fresh`
+- Linux `tauri dev` remains the primary desktop smoke-test track to keep exercising
 - Windows desktop validation has not yet been performed
 
 That is acceptable as a **current state**, but it should not be mistaken for full desktop readiness.

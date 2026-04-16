@@ -1,167 +1,156 @@
-# Your Source to Prompt (Clone + Enhanced)
+# Your Source to Prompt
 
-This repository is a **clone/fork** of the original project:
+This repository is a maintained fork of the original project by **Dicklesworthstone**:
 
 - Original repo: https://github.com/Dicklesworthstone/your-source-to-prompt.html
-- Original author: **Dicklesworthstone**
+- Original concept and base implementation come from that upstream project
 
-This clone is maintained separately and includes additional stability, performance, and UX changes focused on large repositories and WSL/Linux browser workflows.
+This fork is now centered on a **desktop-first Tauri endpoint** with a shared application/core architecture and a browser shell kept as a secondary path.
 
-## Important Attribution
+Install/setup directions live in [INSTALL.md](/home/graham/projects/your-source-to-prompt.html/INSTALL.md:1).
+Current implementation status lives in [STATUS.md](/home/graham/projects/your-source-to-prompt.html/STATUS.md:1).
 
-- This is **not** the canonical upstream repository.
-- Core concept and base implementation come from the original project.
-- This fork is **not affiliated with** or endorsed by the upstream author.
-- Please star/support the original project if you find this useful.
-- Upstream author notes and external/commercial links remain available in the upstream README.
+## Product Direction
 
-## Why This Clone Exists
+The repo now has two runtime shells:
 
-The upstream tool is already useful, but our workflow needed more robustness for:
+- **Primary endpoint:** Tauri desktop app in `apps/tauri`
+- **Secondary/fallback endpoint:** browser shell in `apps/browser`
 
-- very large codebases
-- repeated reload/refresh cycles
-- clearer error visibility
-- better behavior in WSL/Linux Chromium environments
+Both shells share the same extracted:
 
-## What The Tool Does
+- core logic
+- application/controller layer
+- shell UI modules
+- host contract model
 
-`your-source-to-prompt.html` is a single local HTML app that lets you:
+That means the project is no longer just “one HTML file with some patches.” The monolithic HTML app still exists for continuity, but the architectural direction is the layered desktop product.
 
-- pick a local folder
-- select files in a tree UI
-- optionally filter by file type/name
-- combine selected files into one prompt-friendly output
-- optionally remove comments/minify output
-- copy or download final combined text
+## What It Does
 
-Everything runs locally in-browser.
+Your Source to Prompt lets you:
 
-## Our Changes (Compared to Original)
+- select a local repository
+- scan and filter the file tree
+- select a focused set of text files
+- optionally add framing like a preamble or goal
+- optionally apply output transforms
+- generate one prompt-ready combined output
+- copy, download, or save the result
 
-### 1) Large-Repo Performance
+The desktop shell is the preferred path because it gives us native file access, restore flows, clipboard/save integration, and a more dependable local workflow.
 
-- Virtualized file tree rendering (renders visible rows instead of entire tree DOM).
-- Folder rows default to collapsed after scan/refresh.
-- Debounced filtering for faster typing responsiveness.
-- Reduced expensive re-scans and repeated DOM queries.
-- Chunked/yielded scanning to keep UI responsive during long folder reads.
+## Current State
 
-### 2) Selection Behavior and Tree UX
+What is already real in this fork:
 
-- Added folder expand/collapse toggles.
-- Added `Clear All Selections` button.
-- Improved `Toggle Select All Text Files` behavior with collapsed/filter states.
-- Added folder-level selected/visible counters (e.g. `folder (3/12)`).
-- Fixed text detection for common dotfiles/config files (e.g. `.dockerignore`, `.eslintrc`, `.prettierrc`, `.env*`).
+- shared core/application architecture
+- browser host implementations
+- Tauri bridge + host implementations
+- shared shell UI used by both browser and Tauri
+- saved-repository restore flow
+- diagnostics capture with copy/clear controls
+- background-preferred transform execution through host task adapters
+- Linux-side Tauri compile validation through `npm run tauri:check:fresh`
 
-### 3) Transformation Pipeline
+What is not fully validated yet:
 
-- Added worker-backed transform pipeline for comment-removal/minification.
-- Added fallback to main thread if worker fails.
-- Added worker timeout guard.
-- Shared application flow now routes background-preferred transform work through host task adapters instead of always executing inline.
+- native Windows desktop runtime validation
+- completed Linux desktop smoke-test record for the current shell UX
 
-### 4) Loading, Progress, and Feedback
+For the detailed validation matrix, use [STATUS.md](/home/graham/projects/your-source-to-prompt.html/STATUS.md:1).
 
-- Added loading heartbeat with elapsed time/stage updates.
-- Added explicit status messaging during scan/combine/transform phases.
+## Quick Start
 
-### 5) Error Handling and Diagnostics
+### Preferred: Tauri Desktop
 
-- Improved error normalization (`describeError`) with clearer user-facing messages.
-- Added in-app **Diagnostics** panel with copy/clear controls.
-- Diagnostics now logs picker attempts, restore state, scan lifecycle, and runtime errors.
-- Added global runtime error/unhandled rejection capture to diagnostics.
+From the repo root:
 
-### 6) Folder Access and Restore
+```bash
+npm install
+npm test
+npm run tauri:doctor
+npm run tauri:check:fresh
+npm run tauri:dev:fresh
+```
 
-- Added picker retry logic for protected/system-folder failures.
-- Added **Restore Last Folder** button (manual restore flow).
-- Persists folder handle to IndexedDB and restores with permission flow when available.
-- Shared shells now attempt a silent startup restore first, then fall back to the manual button when a host requires re-granting access.
-
-## Refresh vs Restore
-
-These are different actions:
-
-- **Refresh Folder**: rescans the currently active folder handle in the same session.
-- **Restore Last Folder**: recovers previously saved folder access after page reload (permission-dependent).
-
-## Browser and Environment Notes
-
-Best results:
-
-- Chromium-based browser with File System Access API support.
-- If your repo is in WSL Linux paths (`/home/...`), running Chromium inside WSL usually behaves more predictably than Windows Chrome.
-
-Known constraints:
-
-- Browsers may block protected/system-managed folders.
-- Folder-handle permission may reset to `prompt` depending on profile/session/security state.
-- Native Windows Tauri validation still needs to happen on Windows itself before the desktop path is considered fully cross-platform.
-
-## Current Dev Approach
-
-We are currently developing from **WSL** and treating that as the default authoring environment.
-
-That means:
-
-- browser-shell and JS/package work are expected to run in WSL
-- Linux Tauri validation is tracked explicitly through `npm run tauri:doctor` and `npm run tauri:check`
-- Windows desktop validation is **not** assumed from WSL and must be tested on native Windows
-
-The detailed environment policy lives in [DEVELOPMENT_APPROACH.md](/home/graham/projects/your-source-to-prompt.html/DEVELOPMENT_APPROACH.md:1).
-Current implementation/progress status lives in [STATUS.md](/home/graham/projects/your-source-to-prompt.html/STATUS.md:1).
-
-If Linux Tauri desktop checks fail in WSL because GTK/WebKit libraries are missing, install them with:
+If Linux desktop prerequisites are missing, install them with:
 
 ```bash
 npm run tauri:deps:linux
 ```
 
-If a Tauri command appears stuck because of a stale Cargo target lock, use the fresh-target variants:
+### Secondary: Browser Shell
+
+If you want the browser path instead:
 
 ```bash
-npm run tauri:check:fresh
-npm run tauri:dev:fresh
+npm install
+npm test
 ```
 
-While `tauri dev` is running, the launcher now keeps `apps/tauri/.frontend-dist` refreshed in the background so UI and shared-package edits do not require a full restart just to reach the staged frontend. It also refuses to start a second overlapping Tauri CLI run for the same repo, which prevents the shared staged frontend from being stomped by concurrent desktop commands.
+Then open the browser shell or legacy monolith locally:
 
-Inside WSL, the Tauri launcher now defaults to software rendering and disables WebKit compositing to reduce common `libEGL` / Mesa warnings from the WSL graphics stack.
+- [apps/browser/index.html](/home/graham/projects/your-source-to-prompt.html/apps/browser/index.html:1)
+- [your-source-to-prompt.html](/home/graham/projects/your-source-to-prompt.html/your-source-to-prompt.html:1)
 
-## Quick Start
+## Recommended Desktop Smoke Test
 
-1. Open `your-source-to-prompt.html` in a recent Chromium-based browser.
-2. Click `Select Folder` and choose your project.
-3. Select/filter files.
-4. Click `Combine Selected Files`.
-5. Copy/download result.
-6. After a page reload, the app will try to restore the last folder automatically when host permissions still allow it.
-7. If the host needs permission again, use `Restore Last Folder`.
+Once the Tauri app opens:
 
-## Troubleshooting
+1. Select a repository.
+2. Confirm the tree loads and nesting is visible.
+3. Select files or use the bulk text-file selector.
+4. Generate a prompt bundle.
+5. Copy or save the output.
+6. Restart and verify restore behavior.
 
-If something fails, open **Diagnostics** in the app and copy the latest logs.
-Useful events include:
+## Environment Notes
 
-- `picker-attempt-*`
-- `handle-restore-*`
-- `window-error`
-- `unhandled-rejection`
-- `scan-start` / `scan-complete`
-- `combine-result`
+- We are currently developing primarily from **WSL on Linux paths**.
+- WSL is a valid authoring environment for JS/package work and Linux-oriented Tauri checks.
+- **WSL is not native Windows validation.**
+- Native Windows desktop behavior still has to be tested on Windows itself.
 
-## Screenshots
+The environment policy is documented in [DEVELOPMENT_APPROACH.md](/home/graham/projects/your-source-to-prompt.html/DEVELOPMENT_APPROACH.md:1).
 
-|                               |                               |
-|-------------------------------|-------------------------------|
-| ![Screenshot 1](https://raw.githubusercontent.com/Dicklesworthstone/your-source-to-prompt.html/refs/heads/main/screenshots/screenshot_1.png) | ![Screenshot 2](https://raw.githubusercontent.com/Dicklesworthstone/your-source-to-prompt.html/refs/heads/main/screenshots/screenshot_2.png) |
-| ![Screenshot 3](https://raw.githubusercontent.com/Dicklesworthstone/your-source-to-prompt.html/refs/heads/main/screenshots/screenshot_3.png) | ![Screenshot 4](https://raw.githubusercontent.com/Dicklesworthstone/your-source-to-prompt.html/refs/heads/main/screenshots/screenshot_4.png) |
+## Tauri Workflow Notes
+
+- Prefer `npm run tauri:check:fresh` and `npm run tauri:dev:fresh` to avoid stale Cargo target lock confusion.
+- While `tauri dev` is running, the launcher keeps `apps/tauri/.frontend-dist` synchronized with current shell/package code.
+- Overlapping Tauri CLI runs are blocked so concurrent desktop commands do not stomp the shared staged frontend.
+- In WSL, the launcher defaults to software-rendered WebKit settings to reduce common WSLg graphics issues.
+
+## Browser Workflow Notes
+
+The browser shell still matters, but it is no longer the primary product target.
+
+Use it when:
+
+- you want quick JS/UI iteration without the desktop runtime
+- you are validating shared shell behavior
+- desktop prerequisites are temporarily unavailable
+
+Remember:
+
+- browser file access depends on File System Access API support
+- some protected/system folders may be blocked
+- permission restore behavior depends on browser security state
+
+## Related Docs
+
+- [INSTALL.md](/home/graham/projects/your-source-to-prompt.html/INSTALL.md:1)
+- [DEVELOPMENT_APPROACH.md](/home/graham/projects/your-source-to-prompt.html/DEVELOPMENT_APPROACH.md:1)
+- [apps/tauri/src-tauri/README.md](/home/graham/projects/your-source-to-prompt.html/apps/tauri/src-tauri/README.md:1)
+- [WINDOWS_TAURI_SETUP.md](/home/graham/projects/your-source-to-prompt.html/WINDOWS_TAURI_SETUP.md:1)
+- [STATUS.md](/home/graham/projects/your-source-to-prompt.html/STATUS.md:1)
+
+## Attribution
+
+- This is not the canonical upstream repository.
+- This fork is not affiliated with or endorsed by the upstream author.
+- If you find the project useful, please support the upstream project as well.
 
 ## License
 
 License remains subject to the upstream project license (`MIT`, per upstream README).
-
-If you need strict legal confirmation, verify against the upstream repository’s current license files and terms.

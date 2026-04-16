@@ -2,6 +2,8 @@
 
 This directory now contains the first real desktop runtime scaffold for the primary endpoint.
 
+For full environment bootstrap instructions across WSL, native Linux, and native Windows, see [INSTALL.md](/home/graham/projects/your-source-to-prompt.html/INSTALL.md:1).
+
 Current scope:
 
 - Tauri v2 project structure
@@ -40,9 +42,15 @@ Helpful local commands in this workspace:
 npm run tauri:doctor
 npm run tauri:deps:linux
 npm run tauri:doctor:windows
-npm run tauri:check
+npm run tauri:check:fresh
 npm run tauri:dev:fresh
 ```
+
+Recommended desktop-loop behavior:
+
+- prefer `npm run tauri:check:fresh` and `npm run tauri:dev:fresh` so Cargo target locks do not make the desktop workflow look hung
+- the repo launcher keeps `apps/tauri/.frontend-dist` synchronized while `tauri dev` is running, so shared UI/package edits reach the staged desktop frontend without requiring a full restart
+- the launcher blocks overlapping Tauri CLI runs for this repo so concurrent desktop commands do not stomp the shared staged frontend
 
 ## WSL Note
 
