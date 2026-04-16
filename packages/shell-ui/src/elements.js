@@ -1,0 +1,40 @@
+export function getBrowserShellElements(documentObject = globalThis.document) {
+  return {
+    selectFolderBtn: documentObject.getElementById('selectFolderBtn'),
+    restoreFolderBtn: documentObject.getElementById('restoreFolderBtn'),
+    refreshFolderBtn: documentObject.getElementById('refreshFolderBtn'),
+    toggleVisibleBtn: documentObject.getElementById('toggleVisibleBtn'),
+    clearSelectionBtn: documentObject.getElementById('clearSelectionBtn'),
+    profileNameInput: documentObject.getElementById('profileNameInput'),
+    profileSelect: documentObject.getElementById('profileSelect'),
+    saveProfileBtn: documentObject.getElementById('saveProfileBtn'),
+    loadProfileBtn: documentObject.getElementById('loadProfileBtn'),
+    deleteProfileBtn: documentObject.getElementById('deleteProfileBtn'),
+    selectedRepositoryName: documentObject.getElementById('selectedRepositoryName'),
+    scanPhaseText: documentObject.getElementById('scanPhaseText'),
+    statusMessage: documentObject.getElementById('statusMessage'),
+    selectedSizeText: documentObject.getElementById('selectedSizeText'),
+    selectedLinesText: documentObject.getElementById('selectedLinesText'),
+    visibleRowsText: documentObject.getElementById('visibleRowsText'),
+    filterInput: documentObject.getElementById('filterInput'),
+    treeSummaryText: documentObject.getElementById('treeSummaryText'),
+    treeList: documentObject.getElementById('treeList'),
+    includePreamble: documentObject.getElementById('includePreamble'),
+    preambleInput: documentObject.getElementById('preambleInput'),
+    includeGoal: documentObject.getElementById('includeGoal'),
+    goalInput: documentObject.getElementById('goalInput'),
+    removeCommentsToggle: documentObject.getElementById('removeCommentsToggle'),
+    minifyOutputToggle: documentObject.getElementById('minifyOutputToggle'),
+    combineBtn: documentObject.getElementById('combineBtn'),
+    outputFileNameInput: documentObject.getElementById('outputFileNameInput'),
+    copyOutputBtn: documentObject.getElementById('copyOutputBtn'),
+    downloadOutputBtn: documentObject.getElementById('downloadOutputBtn'),
+    saveOutputBtn: documentObject.getElementById('saveOutputBtn'),
+    outputTextarea: documentObject.getElementById('outputTextarea'),
+    copyDiagnosticsBtn: documentObject.getElementById('copyDiagnosticsBtn'),
+    clearDiagnosticsBtn: documentObject.getElementById('clearDiagnosticsBtn'),
+    diagnosticsLog: documentObject.getElementById('diagnosticsLog')
+  };
+}
+
+export const getShellElements = getBrowserShellElements;

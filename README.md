@@ -60,6 +60,7 @@ Everything runs locally in-browser.
 - Added worker-backed transform pipeline for comment-removal/minification.
 - Added fallback to main thread if worker fails.
 - Added worker timeout guard.
+- Shared application flow now routes background-preferred transform work through host task adapters instead of always executing inline.
 
 ### 4) Loading, Progress, and Feedback
 
@@ -78,6 +79,7 @@ Everything runs locally in-browser.
 - Added picker retry logic for protected/system-folder failures.
 - Added **Restore Last Folder** button (manual restore flow).
 - Persists folder handle to IndexedDB and restores with permission flow when available.
+- Shared shells now attempt a silent startup restore first, then fall back to the manual button when a host requires re-granting access.
 
 ## Refresh vs Restore
 
@@ -97,6 +99,37 @@ Known constraints:
 
 - Browsers may block protected/system-managed folders.
 - Folder-handle permission may reset to `prompt` depending on profile/session/security state.
+- Native Windows Tauri validation still needs to happen on Windows itself before the desktop path is considered fully cross-platform.
+
+## Current Dev Approach
+
+We are currently developing from **WSL** and treating that as the default authoring environment.
+
+That means:
+
+- browser-shell and JS/package work are expected to run in WSL
+- Linux Tauri validation is tracked explicitly through `npm run tauri:doctor` and `npm run tauri:check`
+- Windows desktop validation is **not** assumed from WSL and must be tested on native Windows
+
+The detailed environment policy lives in [DEVELOPMENT_APPROACH.md](/home/graham/projects/your-source-to-prompt.html/DEVELOPMENT_APPROACH.md:1).
+Current implementation/progress status lives in [STATUS.md](/home/graham/projects/your-source-to-prompt.html/STATUS.md:1).
+
+If Linux Tauri desktop checks fail in WSL because GTK/WebKit libraries are missing, install them with:
+
+```bash
+npm run tauri:deps:linux
+```
+
+If a Tauri command appears stuck because of a stale Cargo target lock, use the fresh-target variants:
+
+```bash
+npm run tauri:check:fresh
+npm run tauri:dev:fresh
+```
+
+While `tauri dev` is running, the launcher now keeps `apps/tauri/.frontend-dist` refreshed in the background so UI and shared-package edits do not require a full restart just to reach the staged frontend. It also refuses to start a second overlapping Tauri CLI run for the same repo, which prevents the shared staged frontend from being stomped by concurrent desktop commands.
+
+Inside WSL, the Tauri launcher now defaults to software rendering and disables WebKit compositing to reduce common `libEGL` / Mesa warnings from the WSL graphics stack.
 
 ## Quick Start
 
@@ -105,7 +138,8 @@ Known constraints:
 3. Select/filter files.
 4. Click `Combine Selected Files`.
 5. Copy/download result.
-6. After a page reload, use `Restore Last Folder` if needed.
+6. After a page reload, the app will try to restore the last folder automatically when host permissions still allow it.
+7. If the host needs permission again, use `Restore Last Folder`.
 
 ## Troubleshooting
 
@@ -114,8 +148,10 @@ Useful events include:
 
 - `picker-attempt-*`
 - `handle-restore-*`
+- `window-error`
+- `unhandled-rejection`
 - `scan-start` / `scan-complete`
-- `window-error` / `unhandled-rejection`
+- `combine-result`
 
 ## Screenshots
 

@@ -1,0 +1,7 @@
+{
+  "name": "@ysp/core",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Portable domain core for Your Source to Prompt."
+}

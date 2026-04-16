@@ -1,0 +1,7 @@
+{
+  "name": "@ysp/host-contracts",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Host contracts for Your Source to Prompt."
+}

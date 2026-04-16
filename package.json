@@ -1,0 +1,28 @@
+{
+  "name": "your-source-to-prompt-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  },
+  "scripts": {
+    "lint": "echo \"lint not configured yet\"",
+    "test": "node --test tests/core/*.test.js tests/application/*.test.js tests/integration/*.test.js",
+    "build": "echo \"build not configured yet\"",
+    "tauri:doctor": "npm --workspace @ysp/tauri run doctor",
+    "tauri:doctor:linux": "npm --workspace @ysp/tauri run doctor:linux",
+    "tauri:doctor:windows": "npm --workspace @ysp/tauri run doctor:windows",
+    "tauri:deps:linux": "bash scripts/install-tauri-linux-deps.sh",
+    "tauri:check": "npm --workspace @ysp/tauri run cargo:check",
+    "tauri:check:fresh": "CARGO_TARGET_DIR=/tmp/ysp-tauri-check npm --workspace @ysp/tauri run cargo:check",
+    "tauri:dev": "npm --workspace @ysp/tauri run dev",
+    "tauri:dev:fresh": "CARGO_TARGET_DIR=/tmp/ysp-tauri-dev npm --workspace @ysp/tauri run dev",
+    "tauri:build": "npm --workspace @ysp/tauri run build",
+    "tauri:build:fresh": "CARGO_TARGET_DIR=/tmp/ysp-tauri-build npm --workspace @ysp/tauri run build"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "@ysp/application",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Application layer for Your Source to Prompt."
+}

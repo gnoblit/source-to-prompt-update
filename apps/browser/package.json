@@ -1,0 +1,7 @@
+{
+  "name": "@ysp/browser",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser shell for Your Source to Prompt."
+}
