@@ -133,7 +133,16 @@ export function renderBrowserShell({
   elements.goalInput.value = state.options.goalText;
   elements.removeCommentsToggle.checked = state.options.transforms.removeComments === true;
   elements.minifyOutputToggle.checked = state.options.transforms.minifyOutput === true;
-  elements.outputTextarea.value = state.output.renderedText || '';
+  const nextOutputPreview = state.output.previewText || '';
+  if (elements.outputTextarea.value !== nextOutputPreview) {
+    elements.outputTextarea.value = nextOutputPreview;
+    elements.outputTextarea.scrollTop = 0;
+    elements.outputTextarea.scrollLeft = 0;
+  }
+  if (elements.outputSummaryText) {
+    elements.outputSummaryText.textContent =
+      state.output.summaryText || 'Combined output will appear here.';
+  }
 
   renderProfileControls({
     documentObject,
@@ -152,7 +161,12 @@ export function renderBrowserShell({
   elements.saveProfileBtn.disabled =
     !state.session.repositoryHandle || !elements.profileNameInput.value.trim();
   elements.combineBtn.disabled = !viewModel.combineEnabled;
-  elements.copyOutputBtn.disabled = !state.output.renderedText;
+  if (elements.clearOutputBtn) {
+    elements.clearOutputBtn.disabled = !state.output.renderedText;
+  }
+  elements.copyOutputBtn.disabled = !state.output.renderedText || state.output.copyAllowed !== true;
+  elements.copyOutputBtn.textContent =
+    state.output.renderedText && state.output.copyAllowed !== true ? 'Copy Too Large' : 'Copy';
   elements.downloadOutputBtn.disabled = !state.output.renderedText;
   elements.saveOutputBtn.disabled = !state.output.renderedText;
 

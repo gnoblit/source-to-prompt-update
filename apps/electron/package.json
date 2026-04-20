@@ -1,0 +1,11 @@
+{
+  "name": "@ysp/electron",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src-electron/main.cjs",
+  "description": "Primary Electron shell for Your Source to Prompt.",
+  "scripts": {
+    "dev": "node ../../scripts/run-electron.mjs"
+  }
+}

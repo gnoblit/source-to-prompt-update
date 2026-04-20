@@ -2,18 +2,37 @@ const DEFAULT_PATTERN_SOURCES = [
   '^.git(?:$|/)',
   '^.husky(?:$|/)',
   '^.vscode(?:$|/)',
+  '^\\.venv(?:$|/)',
+  '^venv(?:$|/)',
+  '^\\.direnv(?:$|/)',
   '^node_modules(?:$|/)',
   '^\\.next(?:$|/)',
   '^out(?:$|/)',
   '^build(?:$|/)',
   '^coverage(?:$|/)',
+  '^__pycache__(?:$|/)',
   '\\.DS_Store$',
   '\\.env\\.*',
   '\\.pnp\\.*',
   '\\.yarn/*',
   '\\.vercel(?:$|/)',
   '\\.tsbuildinfo$',
-  '^next-env\\.d\\.ts$'
+  '^next-env\\.d\\.ts$',
+  '(?:^|/)package-lock\\.json$',
+  '(?:^|/)npm-shrinkwrap\\.json$',
+  '(?:^|/)pnpm-lock\\.yaml$',
+  '(?:^|/)pnpm-lock\\.yml$',
+  '(?:^|/)yarn\\.lock$',
+  '(?:^|/)bun\\.lock$',
+  '(?:^|/)bun\\.lockb$',
+  '(?:^|/)Cargo\\.lock$',
+  '(?:^|/)Gemfile\\.lock$',
+  '(?:^|/)composer\\.lock$',
+  '(?:^|/)Podfile\\.lock$',
+  '(?:^|/)Pipfile\\.lock$',
+  '(?:^|/)poetry\\.lock$',
+  '(?:^|/)uv\\.lock$',
+  '(?:^|/)\\.electron-cli\\.lock$'
 ];
 
 function normalizePath(path) {
@@ -59,19 +78,19 @@ export class GitIgnoreMatcher {
   constructor(patterns = '') {
     this.patterns = [];
 
-    for (const line of String(patterns).split('\n')) {
-      const compiled = compileGitIgnorePattern(line);
-      if (compiled) {
-        this.patterns.push(compiled);
-      }
-    }
-
     for (const patternSource of DEFAULT_PATTERN_SOURCES) {
       this.patterns.push({
         regex: new RegExp(patternSource),
         isNegation: false,
         original: patternSource
       });
+    }
+
+    for (const line of String(patterns).split('\n')) {
+      const compiled = compileGitIgnorePattern(line);
+      if (compiled) {
+        this.patterns.push(compiled);
+      }
     }
   }
 

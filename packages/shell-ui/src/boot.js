@@ -119,11 +119,29 @@ export function bootShellUI({
     } else if (event.type === 'repository-restored') {
       setStatus(`Restored repository: ${event.payload.rootName}`, 'success');
     } else if (event.type === 'selection-combined') {
-      setStatus(`Built prompt bundle for ${event.payload.fileCount} files.`, 'success');
+      const presentation = event.payload.outputPresentation || null;
+      const warnings = [];
+
+      if (presentation?.previewTruncated) {
+        warnings.push('preview truncated');
+      }
+      if (presentation?.copyAllowed === false) {
+        warnings.push('clipboard copy disabled');
+      }
+
+      setStatus(
+        warnings.length > 0
+          ? `Built prompt bundle for ${event.payload.fileCount} files; ${warnings.join(', ')}.`
+          : `Built prompt bundle for ${event.payload.fileCount} files.`,
+        'success'
+      );
       appendDiagnostic('combine-complete', {
         fileCount: event.payload.fileCount,
+        outputPresentation: presentation,
         transformExecution: event.payload.transformExecution || null
       });
+    } else if (event.type === 'output-cleared') {
+      render();
     } else if (event.type === 'scan-progress') {
       clearStatus();
     } else {
@@ -326,6 +344,10 @@ export function bootShellUI({
     try {
       appendDiagnostic('combine-click');
       const result = await controller.combineSelection();
+      if (elements.outputTextarea) {
+        elements.outputTextarea.scrollTop = 0;
+        elements.outputTextarea.scrollLeft = 0;
+      }
       appendDiagnostic('combine-result', {
         transformPlan: result.transformPlan,
         transformExecution: result.transformExecution
@@ -337,9 +359,35 @@ export function bootShellUI({
     }
   });
 
+  elements.clearOutputBtn?.addEventListener('click', () => {
+    controller.clearOutput();
+    if (elements.outputTextarea) {
+      elements.outputTextarea.scrollTop = 0;
+      elements.outputTextarea.scrollLeft = 0;
+    }
+    setStatus('Cleared generated output.', 'success');
+  });
+
+  elements.reloadAppBtn?.addEventListener('click', () => {
+    appendDiagnostic('reload-app-click');
+
+    if (windowObject?.location && typeof windowObject.location.reload === 'function') {
+      windowObject.location.reload();
+      return;
+    }
+
+    setStatus('Reload is unavailable in this host.', 'info');
+  });
+
   elements.copyOutputBtn.addEventListener('click', async () => {
     try {
-      const text = controller.getState().output.renderedText;
+      const output = controller.getState().output;
+      if (output.copyAllowed !== true) {
+        setStatus('Output is too large to copy safely. Use Save As or Download instead.', 'info');
+        return;
+      }
+
+      const text = output.renderedText;
       await hosts.outputHost.copyText(text);
       setStatus('Copied output to clipboard.', 'success');
     } catch (error) {

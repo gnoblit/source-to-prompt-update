@@ -69,6 +69,9 @@ test('scans a repository into an index with default ignores and text detection',
       createFile('index.ts', 'export const value = 1;\n'),
       createFile('logo.png', 'binary', { size: 2048 })
     ]),
+    createDirectory('.venv', [
+      createFile('pyvenv.cfg', 'home = /usr/bin/python3\n')
+    ]),
     createDirectory('node_modules', [
       createFile('ignored.js', 'console.log("ignored");')
     ]),
@@ -76,6 +79,7 @@ test('scans a repository into an index with default ignores and text detection',
     createDirectory('dist', [
       createFile('bundle.js', 'console.log("bundle");')
     ]),
+    createFile('package-lock.json', '{\n  "lockfileVersion": 3\n}\n'),
     createFile('README.md', '# Title\n')
   ]);
 
@@ -91,8 +95,10 @@ test('scans a repository into an index with default ignores and text detection',
   assert.equal(result.snapshot.rootName, 'project');
   assert.equal(result.ignoreSource, 'gitignore');
   assert.deepEqual(listTextFilePaths(result.index), ['.gitignore', 'README.md', 'src/index.ts']);
+  assert.equal(result.index.entriesByPath.has('.venv/pyvenv.cfg'), false);
   assert.equal(result.index.entriesByPath.has('node_modules/ignored.js'), false);
   assert.equal(result.index.entriesByPath.has('dist/bundle.js'), false);
+  assert.equal(result.index.entriesByPath.has('package-lock.json'), false);
   assert.equal(result.index.entriesByPath.has('src/logo.png'), true);
   assert.equal(progressPhases.at(0), 'start');
   assert.equal(progressPhases.at(-1), 'complete');

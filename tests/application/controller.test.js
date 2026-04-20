@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createAppController } from '../../packages/application/src/controller/create-app-controller.js';
+import { createAppState } from '../../packages/application/src/state/create-app-state.js';
+import {
+  OUTPUT_COPY_BYTE_LIMIT,
+  OUTPUT_PREVIEW_CHARACTER_LIMIT
+} from '../../packages/core/src/output/output-presentation.js';
 
 function createDirectory(name, entries = [], options = {}) {
   return {
@@ -189,6 +194,66 @@ test('controller supports folder selection and combine workflow', async () => {
   assert.equal(folderState.checked, true);
   assert.match(result.renderedText, /\{"value":1\}/);
   assert.equal(result.renderedText.includes('// comment'), false);
+  assert.equal(result.outputPresentation.previewTruncated, false);
+  assert.equal(result.outputPresentation.copyAllowed, true);
+  assert.equal(controller.getState().output.previewText, result.renderedText);
+});
+
+test('controller stores a truncated preview and disables copy for oversized output bundles', async () => {
+  const largeContent = 'a'.repeat(OUTPUT_COPY_BYTE_LIMIT + 128);
+  const rootHandleRef = {
+    current: createDirectory('project', [createFile('large.txt', largeContent)])
+  };
+
+  const controller = createAppController({
+    repositoryHost: createFakeRepositoryHost(rootHandleRef),
+    taskHost: createFakeTaskHost(),
+    host: 'browser'
+  });
+
+  await controller.selectRepository();
+  controller.setFileSelection('large.txt', true);
+
+  const result = await controller.combineSelection();
+  const outputState = controller.getState().output;
+
+  assert.equal(result.outputPresentation.previewTruncated, true);
+  assert.equal(result.outputPresentation.copyAllowed, false);
+  assert.equal(outputState.copyAllowed, false);
+  assert.equal(outputState.previewText.length < result.renderedText.length, true);
+  assert.equal(outputState.previewText.includes('[Preview truncated.'), true);
+  assert.equal(outputState.summaryText.includes('Clipboard copy is disabled'), true);
+  assert.equal(outputState.previewText.length <= OUTPUT_PREVIEW_CHARACTER_LIMIT + 128, true);
+});
+
+test('controller clears generated output while preserving the selected file name', async () => {
+  const rootHandleRef = {
+    current: createDirectory('project', [createFile('README.md', '# Title\n')])
+  };
+  const initialState = createAppState();
+  initialState.output.fileName = 'notes.txt';
+
+  const controller = createAppController({
+    initialState,
+    repositoryHost: createFakeRepositoryHost(rootHandleRef),
+    taskHost: createFakeTaskHost(),
+    host: 'browser'
+  });
+
+  await controller.selectRepository();
+  controller.setFileSelection('README.md', true);
+  await controller.combineSelection();
+
+  const clearedView = controller.clearOutput();
+  const outputState = controller.getState().output;
+
+  assert.equal(outputState.fileName, 'notes.txt');
+  assert.equal(outputState.renderedText, '');
+  assert.equal(outputState.previewText, '');
+  assert.equal(outputState.copyAllowed, true);
+  assert.equal(outputState.previewTruncated, false);
+  assert.equal(outputState.summaryText, 'Combined output will appear here.');
+  assert.equal(clearedView.output.fileName, 'notes.txt');
 });
 
 test('controller persists profiles and reapplies them against a rescanned repository', async () => {
@@ -316,7 +381,7 @@ test('controller can remember and restore a saved repository through persistence
     repositoryHost: createFakeRepositoryHost(rootHandleRef),
     persistenceHost,
     taskHost: createFakeTaskHost(),
-    host: 'tauri'
+    host: 'electron'
   });
 
   assert.equal(controller.supportsSavedRepositoryRestore(), true);
@@ -396,7 +461,7 @@ test('controller reports missing or unsupported saved-repository restore states 
     }),
     persistenceHost: createFakePersistenceHost(),
     taskHost: createFakeTaskHost(),
-    host: 'tauri'
+    host: 'electron'
   });
 
   assert.deepEqual(await supportedController.restoreSavedRepository(), {

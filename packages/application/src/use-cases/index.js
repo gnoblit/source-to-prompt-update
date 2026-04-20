@@ -2,6 +2,7 @@ import { buildPromptBundle, renderPromptBundleText } from '../../../core/src/out
 import { normalizeError } from '../../../core/src/errors/normalize-error.js';
 import { scanRepository } from '../../../core/src/scan/scan-engine.js';
 import { reconcileSelectedPaths } from '../../../core/src/selection/selection-engine.js';
+import { createOutputState } from '../state/output-state.js';
 import {
   buildTransformPlan,
   buildTransformResult
@@ -253,13 +254,25 @@ export async function combineSelection({
   });
 
   const renderedText = renderPromptBundleText(bundle);
-  nextState.output.bundle = bundle;
-  nextState.output.renderedText = renderedText;
+  nextState.output = createOutputState({
+    bundle,
+    renderedText,
+    fileName: nextState.output?.fileName || 'combined_files.txt'
+  });
+  const outputPresentation = {
+    previewText: nextState.output.previewText,
+    summaryText: nextState.output.summaryText,
+    stats: nextState.output.stats,
+    previewTruncated: nextState.output.previewTruncated,
+    copyAllowed: nextState.output.copyAllowed,
+    copyByteLimit: nextState.output.copyByteLimit
+  };
 
   return {
     nextState,
     bundle,
     renderedText,
+    outputPresentation,
     transformPlan: transformOutcome.plan,
     transformExecution
   };

@@ -20,6 +20,9 @@ Thumbs.db
 # Local Codex state
 .codex
 
+# Electron runner lock
+apps/electron/.electron-cli.lock
+
 # Rust / Cargo / Tauri build output
 target/
 apps/tauri/src-tauri/target/

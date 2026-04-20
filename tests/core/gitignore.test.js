@@ -9,6 +9,10 @@ test('applies built-in default ignore patterns', () => {
   assert.equal(matcher.ignores('node_modules/pkg/index.js'), true);
   assert.equal(matcher.ignores('.git/config'), true);
   assert.equal(matcher.ignores('coverage/index.html'), true);
+  assert.equal(matcher.ignores('.venv/bin/python'), true);
+  assert.equal(matcher.ignores('package-lock.json'), true);
+  assert.equal(matcher.ignores('nested/yarn.lock'), true);
+  assert.equal(matcher.ignores('apps/electron/.electron-cli.lock'), true);
   assert.equal(matcher.ignores('src/index.ts'), false);
 });
 
@@ -23,6 +27,17 @@ dist/
   assert.equal(matcher.ignores('dist/keep.txt'), false);
   assert.equal(matcher.ignores('root-only.js'), true);
   assert.equal(matcher.ignores('nested/root-only.js'), false);
+});
+
+test('allows repo patterns to opt built-in ignored files back in', () => {
+  const matcher = new GitIgnoreMatcher(`
+!package-lock.json
+!.venv/pyvenv.cfg
+`);
+
+  assert.equal(matcher.ignores('package-lock.json'), false);
+  assert.equal(matcher.ignores('.venv/pyvenv.cfg'), false);
+  assert.equal(matcher.ignores('.venv/bin/python'), true);
 });
 
 test('normalizes windows-style paths for matching', () => {

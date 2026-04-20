@@ -1,3 +1,5 @@
+import { createEmptyOutputState, createOutputState } from './output-state.js';
+
 export function createAppState() {
   return {
     session: {
@@ -36,11 +38,7 @@ export function createAppState() {
         minifyOutput: false
       }
     },
-    output: {
-      bundle: null,
-      renderedText: '',
-      fileName: 'combined_files.txt'
-    },
+    output: createEmptyOutputState(),
     ui: {
       expandedFolders: new Set(),
       globalMessage: null
@@ -86,9 +84,10 @@ export function cloneAppState(state) {
         ...(state.options?.transforms || {})
       }
     },
-    output: {
-      ...(state.output || {})
-    },
+    output: createOutputState({
+      ...(state.output || {}),
+      fileName: state.output?.fileName || 'combined_files.txt'
+    }),
     ui: {
       ...(state.ui || {}),
       expandedFolders: new Set(state.ui?.expandedFolders || [])

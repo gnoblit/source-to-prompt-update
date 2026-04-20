@@ -16,6 +16,7 @@ import {
   selectTreeView
 } from '../selectors/index.js';
 import { cloneAppState, createAppState } from '../state/create-app-state.js';
+import { createEmptyOutputState } from '../state/output-state.js';
 import {
   combineSelection as combineSelectionUseCase,
   normalizeUseCaseError,
@@ -555,11 +556,22 @@ export function createAppController({
       type: 'selection-combined',
       payload: {
         fileCount: result.bundle.files.length,
+        outputPresentation: result.outputPresentation,
         transformExecution: result.transformExecution
       }
     });
 
     return result;
+  }
+
+  function clearOutput() {
+    const nextState = cloneAppState(state);
+    nextState.output = createEmptyOutputState(nextState.output.fileName || 'combined_files.txt');
+    replaceState(nextState, {
+      type: 'output-cleared',
+      payload: {}
+    });
+    return getViewModel();
   }
 
   function getFolderCheckboxState(path) {
@@ -594,6 +606,7 @@ export function createAppController({
     toggleAllVisibleTextFiles,
     clearSelection,
     combineSelection,
+    clearOutput,
     getFolderCheckboxState,
     normalizeError
   };

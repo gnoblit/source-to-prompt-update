@@ -1,0 +1,7 @@
+{
+  "name": "@ysp/host-impl-electron",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Electron host implementations for Your Source to Prompt."
+}

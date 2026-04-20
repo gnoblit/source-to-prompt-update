@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createAppController } from '../../packages/application/src/controller/create-app-controller.js';
 import { bootShellUI } from '../../packages/shell-ui/src/boot.js';
+import { OUTPUT_COPY_BYTE_LIMIT } from '../../packages/core/src/output/output-presentation.js';
 
 class FakeElement {
   constructor(tagName = 'div', id = '') {
@@ -121,10 +122,13 @@ function createShellDocument() {
     ['removeCommentsToggle', 'input'],
     ['minifyOutputToggle', 'input'],
     ['combineBtn', 'button'],
+    ['clearOutputBtn', 'button'],
+    ['reloadAppBtn', 'button'],
     ['outputFileNameInput', 'input'],
     ['copyOutputBtn', 'button'],
     ['downloadOutputBtn', 'button'],
     ['saveOutputBtn', 'button'],
+    ['outputSummaryText', 'div'],
     ['outputTextarea', 'textarea'],
     ['copyDiagnosticsBtn', 'button'],
     ['clearDiagnosticsBtn', 'button'],
@@ -147,8 +151,17 @@ function createShellDocument() {
 
 function createWindowObject() {
   const listeners = new Map();
+  let reloadCount = 0;
 
   return {
+    location: {
+      reload() {
+        reloadCount += 1;
+      }
+    },
+    get reloadCount() {
+      return reloadCount;
+    },
     addEventListener(type, listener) {
       if (!listeners.has(type)) {
         listeners.set(type, []);
@@ -508,6 +521,91 @@ test('bootShellUI captures runtime diagnostics and supports copying and clearing
     documentObject.getElementById('statusMessage').textContent,
     /Diagnostics cleared/
   );
+
+  app.dispose();
+});
+
+test('bootShellUI protects oversized output previews and exposes recovery actions', async () => {
+  const largeContent = 'a'.repeat(OUTPUT_COPY_BYTE_LIMIT + 256);
+  const documentObject = createShellDocument();
+  const windowObject = createWindowObject();
+  const harness = createBootApp({
+    rootHandle: createDirectory('project', [createFile('large.txt', largeContent)])
+  });
+
+  const app = bootShellUI({
+    bootApp: harness.bootApp,
+    documentObject,
+    windowObject,
+    storage: {}
+  });
+
+  documentObject.getElementById('selectFolderBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('toggleVisibleBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('combineBtn').click();
+  await flushAsyncWork();
+
+  assert.equal(documentObject.getElementById('copyOutputBtn').disabled, true);
+  assert.match(documentObject.getElementById('copyOutputBtn').textContent, /Copy Too Large/);
+  assert.match(documentObject.getElementById('outputSummaryText').textContent, /Preview truncated/);
+  assert.match(
+    documentObject.getElementById('outputSummaryText').textContent,
+    /Clipboard copy is disabled/
+  );
+  assert.match(documentObject.getElementById('outputTextarea').value, /\[Preview truncated\./);
+
+  documentObject.getElementById('clearOutputBtn').click();
+  await flushAsyncWork();
+
+  assert.equal(documentObject.getElementById('outputTextarea').value, '');
+  assert.equal(documentObject.getElementById('copyOutputBtn').disabled, true);
+  assert.match(documentObject.getElementById('statusMessage').textContent, /Cleared generated output/);
+
+  documentObject.getElementById('reloadAppBtn').click();
+  assert.equal(windowObject.reloadCount, 1);
+
+  app.dispose();
+});
+
+test('bootShellUI resets output scroll when a new prompt bundle is rendered', async () => {
+  const documentObject = createShellDocument();
+  const windowObject = createWindowObject();
+  const harness = createBootApp({
+    rootHandle: createDirectory('project', [
+      createFile('README.md', '# Title\n'),
+      createFile('CHANGELOG.md', '## Changes\n- First\n')
+    ])
+  });
+
+  const app = bootShellUI({
+    bootApp: harness.bootApp,
+    documentObject,
+    windowObject,
+    storage: {}
+  });
+
+  documentObject.getElementById('selectFolderBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('toggleVisibleBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('combineBtn').click();
+  await flushAsyncWork();
+
+  const outputTextarea = documentObject.getElementById('outputTextarea');
+  outputTextarea.scrollTop = 240;
+  outputTextarea.scrollLeft = 96;
+
+  documentObject.getElementById('clearSelectionBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('toggleVisibleBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('combineBtn').click();
+  await flushAsyncWork();
+
+  assert.equal(outputTextarea.scrollTop, 0);
+  assert.equal(outputTextarea.scrollLeft, 0);
 
   app.dispose();
 });

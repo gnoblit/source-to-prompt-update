@@ -870,8 +870,8 @@
             </div>
             <h1>Your Source to Prompt</h1>
             <p>
-              A local browser workspace for assembling prompt-ready repo bundles with the extracted
-              controller, core engines, and browser-native filesystem path.
+              A local desktop workspace for assembling prompt-ready repo bundles with a clean
+              Electron shell around the shared controller and core engines.
             </p>
           </div>
         </section>
@@ -884,8 +884,8 @@
           </p>
           <div class="hero-points">
             <div class="hero-point">
-              <strong>Browser-native repo access</strong>
-              This shell uses File System Access APIs and shared host contracts instead of the old monolith.
+              <strong>Desktop-native repo access</strong>
+              This shell uses Electron IPC and shared host contracts for local filesystem workflows.
             </div>
             <div class="hero-point">
               <strong>Intentional prompt assembly</strong>
@@ -1074,13 +1074,13 @@
 
         if (statusElement) {
           statusElement.className = 'status-message error';
-          statusElement.textContent = `Failed to load the browser frontend module graph: ${message}`;
+          statusElement.textContent = `Failed to load the Electron frontend module graph: ${message}`;
         }
 
         if (diagnosticsElement) {
           diagnosticsElement.textContent = JSON.stringify(
             {
-              event: 'browser-module-import-error',
+              event: 'electron-module-import-error',
               message
             },
             null,
