@@ -99,6 +99,7 @@ function createShellDocument() {
     ['selectFolderBtn', 'button'],
     ['restoreFolderBtn', 'button'],
     ['refreshFolderBtn', 'button'],
+    ['cancelTaskBtn', 'button'],
     ['toggleVisibleBtn', 'button'],
     ['clearSelectionBtn', 'button'],
     ['profileNameInput', 'input'],
@@ -112,7 +113,11 @@ function createShellDocument() {
     ['selectedSizeText', 'div'],
     ['selectedLinesText', 'div'],
     ['visibleRowsText', 'div'],
+    ['largestFilesSummary', 'div'],
+    ['largestFilesList', 'div'],
     ['filterInput', 'input'],
+    ['ignorePatternsInput', 'textarea'],
+    ['ignorePatternsStatus', 'div'],
     ['treeSummaryText', 'div'],
     ['treeList', 'div'],
     ['includePreamble', 'input'],
@@ -121,6 +126,15 @@ function createShellDocument() {
     ['goalInput', 'textarea'],
     ['removeCommentsToggle', 'input'],
     ['minifyOutputToggle', 'input'],
+    ['selectionReviewFiles', 'div'],
+    ['selectionReviewSize', 'div'],
+    ['selectionReviewTokens', 'div'],
+    ['selectionReviewWarnings', 'div'],
+    ['selectionLargestSelectedList', 'div'],
+    ['selectionTypeBreakdown', 'div'],
+    ['selectionDirectoryBreakdown', 'div'],
+    ['guardrailWarningKbInput', 'input'],
+    ['guardrailConfirmationKbInput', 'input'],
     ['combineBtn', 'button'],
     ['clearOutputBtn', 'button'],
     ['reloadAppBtn', 'button'],
@@ -152,6 +166,8 @@ function createShellDocument() {
 function createWindowObject() {
   const listeners = new Map();
   let reloadCount = 0;
+  let confirmResult = true;
+  const confirmMessages = [];
 
   return {
     location: {
@@ -161,6 +177,12 @@ function createWindowObject() {
     },
     get reloadCount() {
       return reloadCount;
+    },
+    get confirmMessages() {
+      return confirmMessages;
+    },
+    setConfirmResult(value) {
+      confirmResult = value;
     },
     addEventListener(type, listener) {
       if (!listeners.has(type)) {
@@ -178,6 +200,10 @@ function createWindowObject() {
         type,
         listeners.get(type).filter((entry) => entry !== listener)
       );
+    },
+    confirm(message) {
+      confirmMessages.push(String(message || ''));
+      return confirmResult;
     },
     dispatchEvent(type, event = {}) {
       for (const listener of listeners.get(type) || []) {
@@ -650,6 +676,92 @@ test('bootShellUI renders nested tree rows with depth-aware indentation metadata
   );
   assert.equal(treeList.children[1].children.at(-1)?.textContent, '📁 components (0/1)');
   assert.equal(treeList.children[2].children.at(-1)?.textContent, '📄 index.ts (0.02 KB)');
+
+  app.dispose();
+});
+
+test('bootShellUI shows the largest text files by size and keeps selection in sync', async () => {
+  const documentObject = createShellDocument();
+  const windowObject = createWindowObject();
+  const harness = createBootApp({
+    rootHandle: createDirectory('project', [
+      createDirectory('src', [
+        createFile('small.ts', 'export const small = true;\n', { size: 128 }),
+        createFile('big.ts', 'export const big = true;\n', { size: 4096 })
+      ]),
+      createFile('logo.png', 'binary', { size: 8192 })
+    ])
+  });
+
+  const app = bootShellUI({
+    bootApp: harness.bootApp,
+    documentObject,
+    windowObject,
+    storage: {}
+  });
+
+  documentObject.getElementById('selectFolderBtn').click();
+  await flushAsyncWork();
+
+  const largestFilesList = documentObject.getElementById('largestFilesList');
+  assert.deepEqual(
+    largestFilesList.children.map((row) => row.children[1]?.textContent),
+    ['src/big.ts', 'src/small.ts']
+  );
+  assert.equal(documentObject.getElementById('largestFilesSummary').textContent, '2 shown by size');
+
+  const checkbox = largestFilesList.children[0].children[0];
+  checkbox.checked = true;
+  largestFilesList.dispatchEvent('change', { target: checkbox });
+  await flushAsyncWork();
+
+  assert.equal(app.controller.getState().selection.selectedPaths.has('src/big.ts'), true);
+  assert.equal(documentObject.getElementById('selectionReviewFiles').textContent, '1');
+  assert.equal(documentObject.getElementById('selectionReviewTokens').textContent, '1,024');
+  assert.equal(
+    documentObject.getElementById('selectionLargestSelectedList').children[0].children[0].textContent,
+    'src/big.ts'
+  );
+
+  app.dispose();
+});
+
+test('bootShellUI asks for confirmation before combining above the configured threshold', async () => {
+  const documentObject = createShellDocument();
+  const windowObject = createWindowObject();
+  windowObject.setConfirmResult(false);
+  const harness = createBootApp({
+    rootHandle: createDirectory('project', [
+      createFile('large.txt', 'a'.repeat(4096), { size: 4096 })
+    ])
+  });
+
+  const app = bootShellUI({
+    bootApp: harness.bootApp,
+    documentObject,
+    windowObject,
+    storage: {}
+  });
+
+  documentObject.getElementById('selectFolderBtn').click();
+  await flushAsyncWork();
+
+  const confirmationInput = documentObject.getElementById('guardrailConfirmationKbInput');
+  confirmationInput.value = '1';
+  confirmationInput.dispatchEvent('input');
+  await flushAsyncWork();
+
+  documentObject.getElementById('toggleVisibleBtn').click();
+  await flushAsyncWork();
+  documentObject.getElementById('combineBtn').click();
+  await flushAsyncWork();
+
+  assert.equal(windowObject.confirmMessages.length, 1);
+  assert.equal(documentObject.getElementById('outputTextarea').value, '');
+  assert.match(
+    documentObject.getElementById('statusMessage').textContent,
+    /cancelled before combine/
+  );
 
   app.dispose();
 });

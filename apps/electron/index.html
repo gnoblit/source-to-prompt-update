@@ -171,9 +171,9 @@
 
       .hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
-        gap: 22px;
-        margin-bottom: 24px;
+        grid-template-columns: 1fr;
+        gap: 0;
+        margin-bottom: 16px;
       }
 
       .hero-card,
@@ -192,8 +192,8 @@
       }
 
       .hero-card {
-        padding: 28px 30px 34px;
-        min-height: 230px;
+        padding: 16px 20px;
+        min-height: 0;
       }
 
       .hero-card::before,
@@ -211,7 +211,7 @@
       .hero-copy {
         position: relative;
         z-index: 1;
-        max-width: 780px;
+        max-width: none;
       }
 
       .hero-top {
@@ -251,11 +251,15 @@
       }
 
       .hero h1 {
-        margin: 18px 0 10px;
+        margin: 8px 0 0;
         font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-        font-size: clamp(3rem, 5vw, 5.2rem);
-        line-height: 0.9;
-        letter-spacing: -0.05em;
+        font-size: clamp(1.8rem, 3vw, 2.4rem);
+        line-height: 1;
+        letter-spacing: -0.02em;
+      }
+
+      .hero-copy > p {
+        display: none;
       }
 
       .hero p {
@@ -267,8 +271,8 @@
       }
 
       .hero-aside {
+        display: none;
         padding: 24px;
-        display: grid;
         grid-template-rows: auto auto 1fr;
         gap: 18px;
       }
@@ -317,7 +321,7 @@
 
       .workspace {
         display: grid;
-        grid-template-columns: minmax(350px, 390px) minmax(0, 1fr);
+        grid-template-columns: minmax(390px, 440px) minmax(0, 1fr);
         gap: 22px;
       }
 
@@ -332,7 +336,7 @@
         justify-content: space-between;
         align-items: end;
         gap: 18px;
-        padding: 24px 26px 16px;
+        padding: 20px 24px 14px;
         border-bottom: 1px solid rgba(201, 188, 167, 0.65);
       }
 
@@ -343,6 +347,7 @@
       }
 
       .panel-head p {
+        display: none;
         margin: 6px 0 0;
         color: var(--ink-soft);
         line-height: 1.45;
@@ -364,6 +369,9 @@
       .profile-card,
       .status-card,
       .field-card,
+      .ignore-card,
+      .largest-files-card,
+      .selection-review-card,
       .compose-card,
       .output-card,
       details {
@@ -377,6 +385,9 @@
       .profile-card,
       .status-card,
       .field-card,
+      .ignore-card,
+      .largest-files-card,
+      .selection-review-card,
       .compose-card,
       .output-card {
         padding: 18px;
@@ -395,6 +406,36 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 10px;
+      }
+
+      .repo-actions {
+        display: grid;
+        gap: 14px;
+      }
+
+      .action-group {
+        display: grid;
+        gap: 8px;
+      }
+
+      .action-group-label {
+        color: var(--ink-soft);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .action-buttons {
+        gap: 8px;
+      }
+
+      .action-buttons button {
+        min-height: 42px;
+      }
+
+      .action-buttons .primary {
+        min-width: 160px;
       }
 
       button {
@@ -583,6 +624,113 @@
         line-height: 1;
       }
 
+      .largest-files-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .largest-files-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 12px;
+      }
+
+      .largest-files-header .section-label {
+        margin-bottom: 4px;
+      }
+
+      .largest-files-header small,
+      .largest-file-empty {
+        color: var(--ink-soft);
+      }
+
+      .largest-files-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .largest-file-row {
+        display: grid;
+        grid-template-columns: 18px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface-input);
+      }
+
+      .largest-file-row input[type="checkbox"] {
+        accent-color: var(--teal);
+      }
+
+      .largest-file-path {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.84rem;
+      }
+
+      .largest-file-size {
+        color: var(--ink-soft);
+        font-size: 0.82rem;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+
+      .largest-file-empty {
+        font-size: 0.9rem;
+      }
+
+      .ignore-card .textarea {
+        min-height: 86px;
+        resize: vertical;
+      }
+
+      .details-body {
+        margin-top: 12px;
+      }
+
+      .profile-card > summary,
+      .ignore-card > summary,
+      .review-details > summary {
+        list-style: none;
+      }
+
+      .profile-card > summary::-webkit-details-marker,
+      .ignore-card > summary::-webkit-details-marker,
+      .review-details > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .profile-card > summary,
+      .ignore-card > summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--ink);
+        text-transform: uppercase;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+      }
+
+      .profile-card > summary::after,
+      .ignore-card > summary::after,
+      .review-details > summary::after {
+        content: "+";
+        color: var(--ink-soft);
+        font-size: 1rem;
+      }
+
+      .profile-card[open] > summary::after,
+      .ignore-card[open] > summary::after,
+      .review-details[open] > summary::after {
+        content: "-";
+      }
+
       .field {
         display: grid;
         gap: 8px;
@@ -627,6 +775,10 @@
         max-height: 620px;
         overflow: auto;
         padding: 10px 0;
+      }
+
+      .tree-virtual-spacer {
+        width: 1px;
       }
 
       .tree-row {
@@ -741,22 +893,148 @@
         line-height: 1.45;
       }
 
+      .selection-review-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .selection-review-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .selection-review-header h3 {
+        margin: 0;
+        font-size: 1.08rem;
+      }
+
+      .selection-review-metrics {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .selection-review-layout {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .compact-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .compact-metric-row,
+      .compact-empty-row,
+      .selection-warning {
+        min-height: 38px;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 11px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface-input);
+      }
+
+      .compact-metric-row span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+        font-size: 0.82rem;
+      }
+
+      .compact-metric-row strong {
+        color: var(--ink-soft);
+        font-size: 0.82rem;
+        white-space: nowrap;
+      }
+
+      .compact-empty-row,
+      .selection-warning {
+        display: block;
+        color: var(--ink-soft);
+        font-size: 0.88rem;
+      }
+
+      .selection-warning.warning {
+        background: var(--surface-warning);
+        color: var(--amber);
+      }
+
+      .selection-warning.danger {
+        background: var(--rose-soft);
+        color: var(--rose);
+      }
+
+      .guardrail-row {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(160px, 1fr));
+        gap: 12px;
+      }
+
+      .review-details {
+        border: 0;
+        background: transparent;
+        box-shadow: none;
+        padding: 0;
+      }
+
+      .review-details > summary {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 0 0;
+        font-size: 0.86rem;
+      }
+
+      .review-details-body {
+        display: grid;
+        gap: 14px;
+        margin-top: 12px;
+      }
+
       .output-shell {
         grid-template-rows: auto auto minmax(360px, 1fr);
       }
 
       .output-toolbar {
+        position: sticky;
+        top: 12px;
+        z-index: 3;
         display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        gap: 14px;
+        grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+        gap: 18px 22px;
         align-items: end;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface-card);
+        box-shadow: inset 0 1px 0 var(--surface-card-highlight);
+      }
+
+      .output-file-field {
+        max-width: 280px;
       }
 
       .output-actions {
         display: flex;
         flex-wrap: wrap;
-        justify-content: flex-end;
-        gap: 10px;
+        justify-content: flex-start;
+        align-items: flex-end;
+        gap: 12px;
+        min-width: 0;
+      }
+
+      .output-actions button {
+        flex: 0 0 auto;
+        min-height: 44px;
+        white-space: nowrap;
       }
 
       .output-card {
@@ -818,6 +1096,10 @@
         .output-actions {
           justify-content: flex-start;
         }
+
+        .output-file-field {
+          max-width: 320px;
+        }
       }
 
       @media (max-width: 760px) {
@@ -842,10 +1124,17 @@
         }
 
         .hero h1 {
-          font-size: clamp(2.6rem, 12vw, 4rem);
+          font-size: clamp(1.9rem, 8vw, 2.6rem);
+          line-height: 1.05;
         }
 
         .metrics {
+          grid-template-columns: 1fr;
+        }
+
+        .selection-review-metrics,
+        .selection-review-layout,
+        .guardrail-row {
           grid-template-columns: 1fr;
         }
 
@@ -856,6 +1145,14 @@
         .output-box {
           min-height: 340px;
         }
+
+        .output-actions button {
+          flex: 1 1 160px;
+        }
+
+        .output-actions .primary {
+          flex-basis: 100%;
+        }
       }
     </style>
   </head>
@@ -865,7 +1162,7 @@
         <section class="hero-card">
           <div class="hero-copy">
             <div class="hero-top">
-              <div class="eyebrow">Browser Runtime</div>
+              <div class="eyebrow">Electron Runtime</div>
               <button class="theme-toggle" id="themeToggleBtn" type="button">Theme · Auto</button>
             </div>
             <h1>Your Source to Prompt</h1>
@@ -909,19 +1206,27 @@
           </div>
           <div class="panel-body repo-body">
             <section class="repo-actions">
-              <p class="section-label">Repository Actions</p>
-              <div class="toolbar">
-                <button class="primary" id="selectFolderBtn">Select Folder</button>
-                <button id="restoreFolderBtn" disabled>Restore Last Folder</button>
-                <button id="refreshFolderBtn" disabled>Refresh</button>
-                <button id="toggleVisibleBtn">Select All Text Files</button>
-                <button class="danger" id="clearSelectionBtn">Clear Selection</button>
+              <div class="action-group">
+                <span class="action-group-label">Repository</span>
+                <div class="toolbar action-buttons">
+                  <button class="primary" id="selectFolderBtn">Select Folder</button>
+                  <button id="restoreFolderBtn" disabled>Restore Last Folder</button>
+                  <button id="refreshFolderBtn" disabled>Refresh</button>
+                  <button class="danger" id="cancelTaskBtn" disabled>Cancel Task</button>
+                </div>
+              </div>
+              <div class="action-group">
+                <span class="action-group-label">Selection</span>
+                <div class="toolbar action-buttons">
+                  <button id="toggleVisibleBtn">Select All Text Files</button>
+                  <button class="danger" id="clearSelectionBtn">Clear Selection</button>
+                </div>
               </div>
             </section>
 
-            <section class="profile-card">
-              <p class="section-label">Profiles</p>
-              <div class="field-stack">
+            <details class="profile-card">
+              <summary>Profiles</summary>
+              <div class="field-stack details-body">
                 <input class="text-input" id="profileNameInput" type="text" placeholder="Name a reusable file set" />
                 <div class="toolbar">
                   <select class="text-input" id="profileSelect" style="flex: 1 1 220px;"></select>
@@ -930,7 +1235,7 @@
                   <button class="danger" id="deleteProfileBtn">Delete Profile</button>
                 </div>
               </div>
-            </section>
+            </details>
 
             <section class="status-card">
               <div class="status-top">
@@ -956,12 +1261,31 @@
               </div>
             </section>
 
+            <section class="largest-files-card">
+              <div class="largest-files-header">
+                <div>
+                  <p class="section-label">Largest Text Files</p>
+                  <small id="largestFilesSummary">No repository loaded.</small>
+                </div>
+              </div>
+              <div class="largest-files-list" id="largestFilesList"></div>
+            </section>
+
             <section class="field-card">
               <div class="field">
                 <label for="filterInput">Filter Files And Folders</label>
                 <input class="text-input" id="filterInput" type="text" placeholder="Try src, auth, prompt, config, parser..." />
               </div>
             </section>
+
+            <details class="ignore-card">
+              <summary>Scan Filters</summary>
+              <div class="field details-body">
+                <label for="ignorePatternsInput">App Ignore Patterns</label>
+                <textarea class="textarea" id="ignorePatternsInput" placeholder="fixtures/**&#10;snapshots/**"></textarea>
+                <small id="ignorePatternsStatus">Using .gitignore and defaults</small>
+              </div>
+            </details>
 
             <section class="tree-frame">
               <div class="tree-toolbar">
@@ -1028,8 +1352,58 @@
               </div>
             </section>
 
+            <section class="selection-review-card">
+              <div class="selection-review-header">
+                <h3>Selection Review</h3>
+              </div>
+              <div class="selection-review-metrics">
+                <div class="metric">
+                  <span>Files</span>
+                  <strong id="selectionReviewFiles">0</strong>
+                </div>
+                <div class="metric">
+                  <span>Size</span>
+                  <strong id="selectionReviewSize">0 KB</strong>
+                </div>
+                <div class="metric">
+                  <span>Estimated Tokens</span>
+                  <strong id="selectionReviewTokens">0</strong>
+                </div>
+              </div>
+              <div class="compact-list" id="selectionReviewWarnings"></div>
+              <details class="review-details">
+                <summary>Breakdowns And Limits</summary>
+                <div class="review-details-body">
+                  <div class="guardrail-row">
+                    <div class="field">
+                      <label for="guardrailWarningKbInput">Warn Above KB</label>
+                      <input class="text-input" id="guardrailWarningKbInput" type="number" min="1" step="1" />
+                    </div>
+                    <div class="field">
+                      <label for="guardrailConfirmationKbInput">Confirm Above KB</label>
+                      <input class="text-input" id="guardrailConfirmationKbInput" type="number" min="1" step="1" />
+                    </div>
+                  </div>
+                  <div class="selection-review-layout">
+                    <div>
+                      <p class="section-label">Largest Selected</p>
+                      <div class="compact-list" id="selectionLargestSelectedList"></div>
+                    </div>
+                    <div>
+                      <p class="section-label">File Types</p>
+                      <div class="compact-list" id="selectionTypeBreakdown"></div>
+                    </div>
+                    <div>
+                      <p class="section-label">Directories</p>
+                      <div class="compact-list" id="selectionDirectoryBreakdown"></div>
+                    </div>
+                  </div>
+                </div>
+              </details>
+            </section>
+
             <section class="output-toolbar">
-              <div class="field">
+              <div class="field output-file-field">
                 <label for="outputFileNameInput">Output File Name</label>
                 <input class="text-input" id="outputFileNameInput" type="text" value="combined_files.txt" />
               </div>

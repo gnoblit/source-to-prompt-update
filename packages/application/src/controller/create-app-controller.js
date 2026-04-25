@@ -12,6 +12,8 @@ import {
   getCombineEligibility,
   selectFolderCheckboxState,
   selectFolderSelectionStats,
+  selectLargestTextFiles,
+  selectSelectionInsights,
   selectSelectionTally,
   selectTreeView
 } from '../selectors/index.js';
@@ -36,6 +38,9 @@ function getIndex(state) {
   return state?.repository?.snapshot?.index || null;
 }
 
+const SCAN_PROGRESS_NOTIFY_ENTRY_STEP = 100;
+const SCAN_PROGRESS_NOTIFY_INTERVAL_MS = 100;
+
 export function createAppController({
   initialState,
   repositoryHost,
@@ -48,6 +53,7 @@ export function createAppController({
   let state = initialState ? cloneAppState(initialState) : createAppState();
   state.session.host = host || state.session.host;
   const listeners = new Set();
+  let activeAbortController = null;
 
   function notify(event) {
     for (const listener of listeners) {
@@ -67,12 +73,14 @@ export function createAppController({
 
   function getViewModel() {
     const treeView = selectTreeView(state);
-    const folderStats = selectFolderSelectionStats(state);
+    const folderStats = selectFolderSelectionStats(state, treeView);
     const tally = selectSelectionTally(state);
 
     return {
       treeView,
       folderStats,
+      largestFiles: selectLargestTextFiles(state),
+      selectionInsights: selectSelectionInsights(state),
       tally,
       combineEnabled: getCombineEligibility(state),
       profiles: state.profile.savedProfiles,
@@ -82,6 +90,100 @@ export function createAppController({
       diagnostics: state.diagnostics,
       ui: state.ui
     };
+  }
+
+  function updateScanProgressState(payload) {
+    state = {
+      ...state,
+      repository: {
+        ...state.repository,
+        scanStatus: {
+          phase: payload.phase,
+          progress: payload,
+          unreadableEntries: state.repository.scanStatus.unreadableEntries
+        }
+      }
+    };
+  }
+
+  function createScanProgressHandler() {
+    let lastNotifiedAt = 0;
+    let lastNotifiedProcessedEntries = -SCAN_PROGRESS_NOTIFY_ENTRY_STEP;
+
+    return function handleScanProgress(payload) {
+      updateScanProgressState(payload);
+
+      const processedEntries = Number(payload.processedEntries) || 0;
+      const now = Date.now();
+      const phase = payload.phase || '';
+      const isBoundary = phase === 'start' || phase === 'complete';
+      const enoughEntries =
+        processedEntries - lastNotifiedProcessedEntries >= SCAN_PROGRESS_NOTIFY_ENTRY_STEP;
+      const enoughTime = now - lastNotifiedAt >= SCAN_PROGRESS_NOTIFY_INTERVAL_MS;
+
+      if (!isBoundary && !enoughEntries && !enoughTime) {
+        return;
+      }
+
+      lastNotifiedAt = now;
+      lastNotifiedProcessedEntries = processedEntries;
+      notify({ type: 'scan-progress', payload });
+    };
+  }
+
+  function setActiveTask(task) {
+    const nextState = cloneAppState(state);
+    nextState.ui.activeTask = task;
+    state = nextState;
+    notify({ type: task ? 'task-started' : 'task-ended', payload: task || {} });
+  }
+
+  function updateActiveTask(partial = {}) {
+    if (!state.ui.activeTask) {
+      return;
+    }
+
+    const nextState = cloneAppState(state);
+    nextState.ui.activeTask = {
+      ...nextState.ui.activeTask,
+      ...partial
+    };
+    state = nextState;
+    notify({ type: 'task-updated', payload: nextState.ui.activeTask });
+  }
+
+  function beginTask(kind, message) {
+    if (activeAbortController) {
+      throw new Error('Another task is already running');
+    }
+
+    activeAbortController = new AbortController();
+    setActiveTask({
+      kind,
+      message,
+      startedAt: new Date().toISOString(),
+      cancelling: false
+    });
+    return activeAbortController.signal;
+  }
+
+  function endTask() {
+    activeAbortController = null;
+    setActiveTask(null);
+  }
+
+  function cancelActiveTask() {
+    if (!activeAbortController) {
+      return false;
+    }
+
+    activeAbortController.abort();
+    updateActiveTask({
+      cancelling: true,
+      message: 'Cancelling...'
+    });
+    notify({ type: 'task-cancel-requested', payload: {} });
+    return true;
   }
 
   function subscribe(listener) {
@@ -220,81 +322,81 @@ export function createAppController({
   }
 
   async function scanRepositoryHandle(rootHandle) {
-    const result = await scanSelectedRepository({
-      state,
-      repositoryHost,
-      rootHandle,
-      host,
-      onProgress(payload) {
-        state = cloneAppState(state);
-        state.repository.scanStatus = {
-          phase: payload.phase,
-          progress: payload,
-          unreadableEntries: state.repository.scanStatus.unreadableEntries
-        };
-        notify({ type: 'scan-progress', payload });
-      }
-    });
+    const signal = beginTask('scan', 'Scanning repository...');
+    const onProgress = createScanProgressHandler();
+    try {
+      const result = await scanSelectedRepository({
+        state,
+        repositoryHost,
+        rootHandle,
+        host,
+        signal,
+        onProgress
+      });
 
-    replaceState(result.nextState, {
-      type: 'repository-scanned',
-      payload: {
-        rootName: result.result.snapshot.rootName
-      }
-    });
+      replaceState(result.nextState, {
+        type: 'repository-scanned',
+        payload: {
+          rootName: result.result.snapshot.rootName,
+          timings: result.result.timings || null
+        }
+      });
 
-    return result;
+      return result;
+    } finally {
+      endTask();
+    }
   }
 
   async function selectRepository() {
-    const result = await selectRepositoryUseCase({
-      state,
-      repositoryHost,
-      host,
-      onProgress(payload) {
-        state = cloneAppState(state);
-        state.repository.scanStatus = {
-          phase: payload.phase,
-          progress: payload,
-          unreadableEntries: state.repository.scanStatus.unreadableEntries
-        };
-        notify({ type: 'scan-progress', payload });
-      }
-    });
+    const signal = beginTask('scan', 'Selecting repository...');
+    const onProgress = createScanProgressHandler();
+    try {
+      const result = await selectRepositoryUseCase({
+        state,
+        repositoryHost,
+        host,
+        signal,
+        onProgress
+      });
 
-    replaceState(result.nextState, {
-      type: 'repository-selected',
-      payload: {
-        rootName: result.result.snapshot.rootName
-      }
-    });
+      replaceState(result.nextState, {
+        type: 'repository-selected',
+        payload: {
+          rootName: result.result.snapshot.rootName,
+          timings: result.result.timings || null
+        }
+      });
 
-    return result;
+      return result;
+    } finally {
+      endTask();
+    }
   }
 
   async function refreshRepository() {
-    const result = await refreshRepositoryUseCase({
-      state,
-      repositoryHost,
-      onProgress(payload) {
-        state = cloneAppState(state);
-        state.repository.scanStatus = {
-          phase: payload.phase,
-          progress: payload,
-          unreadableEntries: state.repository.scanStatus.unreadableEntries
-        };
-        notify({ type: 'scan-progress', payload });
-      }
-    });
+    const signal = beginTask('scan', 'Refreshing repository...');
+    const onProgress = createScanProgressHandler();
+    try {
+      const result = await refreshRepositoryUseCase({
+        state,
+        repositoryHost,
+        signal,
+        onProgress
+      });
 
-    replaceState(result.nextState, {
-      type: 'repository-refreshed',
-      payload: {
-        rootName: result.result.snapshot.rootName
-      }
-    });
+      replaceState(result.nextState, {
+        type: 'repository-refreshed',
+        payload: {
+          rootName: result.result.snapshot.rootName,
+          timings: result.result.timings || null
+        }
+      });
 
-    return result;
+      return result;
+    } finally {
+      endTask();
+    }
   }
 
   function setFilterQuery(query) {
@@ -316,6 +418,30 @@ export function createAppController({
     replaceState(nextState, {
       type: 'transform-options-updated',
       payload: { transforms: { ...nextState.options.transforms } }
+    });
+    return getViewModel();
+  }
+
+  function setGuardrails(partial = {}) {
+    const nextState = cloneAppState(state);
+    const current = nextState.options.guardrails || {};
+    nextState.options.guardrails = {
+      ...current,
+      ...partial
+    };
+    replaceState(nextState, {
+      type: 'guardrails-updated',
+      payload: { guardrails: { ...nextState.options.guardrails } }
+    });
+    return getViewModel();
+  }
+
+  function setIgnorePatterns(patterns) {
+    const nextState = cloneAppState(state);
+    nextState.options.ignorePatterns = typeof patterns === 'string' ? patterns : '';
+    replaceState(nextState, {
+      type: 'ignore-patterns-updated',
+      payload: { ignorePatterns: nextState.options.ignorePatterns }
     });
     return getViewModel();
   }
@@ -546,22 +672,47 @@ export function createAppController({
   }
 
   async function combineSelection() {
-    const result = await combineSelectionUseCase({
-      state,
-      repositoryHost,
-      taskHost
-    });
+    const signal = beginTask('combine', 'Combining selected files...');
+    let lastCombineProgressAt = 0;
+    try {
+      const result = await combineSelectionUseCase({
+        state,
+        repositoryHost,
+        taskHost,
+        signal,
+        onProgress(payload) {
+          if (payload?.phase === 'read-file') {
+            const now = Date.now();
+            const completed = payload.processedFiles + 1;
+            if (
+              completed < payload.totalFiles &&
+              completed % 25 !== 0 &&
+              now - lastCombineProgressAt < SCAN_PROGRESS_NOTIFY_INTERVAL_MS
+            ) {
+              return;
+            }
+            lastCombineProgressAt = now;
+            updateActiveTask({
+              message: `Reading ${completed}/${payload.totalFiles}: ${payload.currentPath}`
+            });
+          }
+        }
+      });
 
-    replaceState(result.nextState, {
-      type: 'selection-combined',
-      payload: {
-        fileCount: result.bundle.files.length,
-        outputPresentation: result.outputPresentation,
-        transformExecution: result.transformExecution
-      }
-    });
+      replaceState(result.nextState, {
+        type: 'selection-combined',
+        payload: {
+          fileCount: result.bundle.files.length,
+          outputPresentation: result.outputPresentation,
+          transformExecution: result.transformExecution,
+          timings: result.timings || null
+        }
+      });
 
-    return result;
+      return result;
+    } finally {
+      endTask();
+    }
   }
 
   function clearOutput() {
@@ -599,6 +750,8 @@ export function createAppController({
     deleteProfile,
     setFilterQuery,
     setTransformOptions,
+    setGuardrails,
+    setIgnorePatterns,
     setPromptOptions,
     toggleFolderExpansion,
     setFileSelection,
@@ -606,6 +759,7 @@ export function createAppController({
     toggleAllVisibleTextFiles,
     clearSelection,
     combineSelection,
+    cancelActiveTask,
     clearOutput,
     getFolderCheckboxState,
     normalizeError

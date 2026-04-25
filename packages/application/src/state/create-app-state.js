@@ -1,4 +1,15 @@
-import { createEmptyOutputState, createOutputState } from './output-state.js';
+import { createEmptyOutputState } from './output-state.js';
+
+function cloneOutputState(output) {
+  if (!output) {
+    return createEmptyOutputState();
+  }
+
+  return {
+    ...output,
+    fileName: output.fileName || 'combined_files.txt'
+  };
+}
 
 export function createAppState() {
   return {
@@ -33,6 +44,11 @@ export function createAppState() {
       customPreamble: '',
       includeGoal: false,
       goalText: '',
+      ignorePatterns: '',
+      guardrails: {
+        warningByteLimit: 512 * 1024,
+        confirmationByteLimit: 2 * 1024 * 1024
+      },
       transforms: {
         removeComments: false,
         minifyOutput: false
@@ -41,7 +57,8 @@ export function createAppState() {
     output: createEmptyOutputState(),
     ui: {
       expandedFolders: new Set(),
-      globalMessage: null
+      globalMessage: null,
+      activeTask: null
     },
     diagnostics: {
       entries: []
@@ -80,14 +97,21 @@ export function cloneAppState(state) {
     },
     options: {
       ...(state.options || {}),
+      guardrails: {
+        warningByteLimit:
+          typeof state.options?.guardrails?.warningByteLimit === 'number'
+            ? state.options.guardrails.warningByteLimit
+            : 512 * 1024,
+        confirmationByteLimit:
+          typeof state.options?.guardrails?.confirmationByteLimit === 'number'
+            ? state.options.guardrails.confirmationByteLimit
+            : 2 * 1024 * 1024
+      },
       transforms: {
         ...(state.options?.transforms || {})
       }
     },
-    output: createOutputState({
-      ...(state.output || {}),
-      fileName: state.output?.fileName || 'combined_files.txt'
-    }),
+    output: cloneOutputState(state.output),
     ui: {
       ...(state.ui || {}),
       expandedFolders: new Set(state.ui?.expandedFolders || [])

@@ -5,7 +5,7 @@ export function createElectronTaskHost({ bridge, createWorkerForTask = null } = 
   const electronBridge = normalizeElectronBridge(bridge);
 
   return {
-    async runTask({ operationName = null, taskType = null, payload = null, workerFactory, timeoutMs = 90000 } = {}) {
+    async runTask({ operationName = null, taskType = null, payload = null, workerFactory, signal, timeoutMs = 90000 } = {}) {
       const resolvedWorkerFactory =
         workerFactory ||
         (typeof createWorkerForTask === 'function' ? createWorkerForTask(taskType) : null);
@@ -15,6 +15,7 @@ export function createElectronTaskHost({ bridge, createWorkerForTask = null } = 
           workerFactory: resolvedWorkerFactory,
           taskType,
           payload,
+          signal,
           timeoutMs
         });
       }

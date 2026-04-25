@@ -29,7 +29,7 @@ async function emitProgress(onProgress, payload) {
   }
 }
 
-async function loadIgnoreMatcher({ rootHandle, host, signal }) {
+async function loadIgnoreMatcher({ rootHandle, host, signal, additionalIgnorePatterns = '' }) {
   const entries = await host.listDirectory(rootHandle, { signal });
   const gitignoreEntry = entries.find(
     (entry) => entry && entry.kind === 'file' && entry.name === '.gitignore'
@@ -37,21 +37,27 @@ async function loadIgnoreMatcher({ rootHandle, host, signal }) {
 
   if (!gitignoreEntry) {
     return {
-      matcher: new GitIgnoreMatcher(''),
-      ignoreSource: 'default'
+      matcher: new GitIgnoreMatcher(additionalIgnorePatterns),
+      ignoreSource: additionalIgnorePatterns.trim() ? 'default+custom' : 'default'
     };
   }
 
   try {
     const content = await host.readTextFile(gitignoreEntry.handle, { signal });
+    const combinedPatterns = [content || '', additionalIgnorePatterns || '']
+      .filter((entry) => entry.trim())
+      .join('\n');
     return {
-      matcher: new GitIgnoreMatcher(content || ''),
-      ignoreSource: content && content.trim() ? 'gitignore' : 'default'
+      matcher: new GitIgnoreMatcher(combinedPatterns),
+      ignoreSource:
+        content && content.trim()
+          ? (additionalIgnorePatterns.trim() ? 'gitignore+custom' : 'gitignore')
+          : (additionalIgnorePatterns.trim() ? 'default+custom' : 'default')
     };
   } catch {
     return {
-      matcher: new GitIgnoreMatcher(''),
-      ignoreSource: 'default'
+      matcher: new GitIgnoreMatcher(additionalIgnorePatterns),
+      ignoreSource: additionalIgnorePatterns.trim() ? 'default+custom' : 'default'
     };
   }
 }
@@ -182,6 +188,7 @@ export async function scanRepository({
   rootHandle,
   host,
   signal,
+  additionalIgnorePatterns = '',
   onProgress
 } = {}) {
   if (!rootHandle) {
@@ -193,7 +200,12 @@ export async function scanRepository({
 
   throwIfAborted(signal);
 
-  const { matcher, ignoreSource } = await loadIgnoreMatcher({ rootHandle, host, signal });
+  const { matcher, ignoreSource } = await loadIgnoreMatcher({
+    rootHandle,
+    host,
+    signal,
+    additionalIgnorePatterns
+  });
   const index = createRepositoryIndex();
   const counters = {
     discoveredEntries: 0,

@@ -1,11 +1,36 @@
 import { createTransformPlan } from '../models/transform-plan.js';
 
 function countLines(text) {
-  return String(text).split('\n').length;
+  const normalized = String(text);
+  let lines = 1;
+  let offset = 0;
+  while ((offset = normalized.indexOf('\n', offset)) !== -1) {
+    lines += 1;
+    offset += 1;
+  }
+  return lines;
 }
 
 function byteSize(text) {
-  return new TextEncoder().encode(String(text)).length;
+  const normalized = String(text);
+  let bytes = 0;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const codePoint = normalized.codePointAt(index);
+
+    if (codePoint <= 0x7f) {
+      bytes += 1;
+    } else if (codePoint <= 0x7ff) {
+      bytes += 2;
+    } else if (codePoint <= 0xffff) {
+      bytes += 3;
+    } else {
+      bytes += 4;
+      index += 1;
+    }
+  }
+
+  return bytes;
 }
 
 function trimTrailingWhitespace(content) {

@@ -1,24 +1,40 @@
 export const OUTPUT_PREVIEW_CHARACTER_LIMIT = 200_000;
 export const OUTPUT_COPY_BYTE_LIMIT = 1_048_576;
 
-const textEncoder = typeof TextEncoder === 'function' ? new TextEncoder() : null;
-
 function countLines(text) {
   if (!text) {
     return 0;
   }
 
-  return text.split('\n').length;
+  let lines = 1;
+  let offset = 0;
+  while ((offset = text.indexOf('\n', offset)) !== -1) {
+    lines += 1;
+    offset += 1;
+  }
+  return lines;
 }
 
 export function measureTextBytes(text = '') {
   const normalized = typeof text === 'string' ? text : String(text || '');
+  let bytes = 0;
 
-  if (textEncoder) {
-    return textEncoder.encode(normalized).length;
+  for (let index = 0; index < normalized.length; index += 1) {
+    const codePoint = normalized.codePointAt(index);
+
+    if (codePoint <= 0x7f) {
+      bytes += 1;
+    } else if (codePoint <= 0x7ff) {
+      bytes += 2;
+    } else if (codePoint <= 0xffff) {
+      bytes += 3;
+    } else {
+      bytes += 4;
+      index += 1;
+    }
   }
 
-  return normalized.length;
+  return bytes;
 }
 
 export function formatByteCount(bytes = 0) {

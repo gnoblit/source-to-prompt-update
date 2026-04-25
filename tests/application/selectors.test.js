@@ -9,6 +9,8 @@ import {
 import {
   getCombineEligibility,
   selectFolderCheckboxState,
+  selectLargestTextFiles,
+  selectSelectionInsights,
   selectSelectionTally,
   selectTreeRows,
   selectTreeView
@@ -117,6 +119,35 @@ test('selectSelectionTally and folder checkbox state derive UI-friendly stats', 
   assert.equal(srcState.checked, false);
   assert.equal(srcState.indeterminate, true);
   assert.equal(componentsState.checked, true);
+});
+
+test('selectLargestTextFiles returns text files sorted by size', () => {
+  const state = createStateWithIndex();
+  const largestFiles = selectLargestTextFiles(state, { limit: 1 });
+
+  assert.deepEqual(
+    largestFiles.map((entry) => entry.path),
+    ['src/components/Button.tsx']
+  );
+  assert.equal(largestFiles[0].size, 120);
+});
+
+test('selectSelectionInsights summarizes size, tokens, and largest contributors', () => {
+  const state = createStateWithIndex();
+  state.selection.selectedPaths.add('src/components/Button.tsx');
+  state.selection.selectedPaths.add('src/index.ts');
+  state.options.guardrails.warningByteLimit = 100;
+  state.options.guardrails.confirmationByteLimit = 500;
+
+  const insights = selectSelectionInsights(state);
+
+  assert.equal(insights.selectedFileCount, 2);
+  assert.equal(insights.selectedTotalBytes, 200);
+  assert.equal(insights.estimatedTokens, 50);
+  assert.equal(insights.largestSelectedFiles[0].path, 'src/components/Button.tsx');
+  assert.equal(insights.fileTypeBreakdown[0].label, '.tsx');
+  assert.equal(insights.directoryBreakdown[0].label, 'src');
+  assert.equal(insights.warnings.some((warning) => warning.kind === 'warning-threshold'), true);
 });
 
 test('getCombineEligibility reflects whether any paths are selected', () => {

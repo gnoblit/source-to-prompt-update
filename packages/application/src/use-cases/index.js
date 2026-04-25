@@ -25,19 +25,42 @@ function hasEnabledTransforms(options) {
   return transforms.removeComments === true || transforms.minifyOutput === true;
 }
 
+function countLines(text) {
+  const normalized = String(text);
+  let lines = 1;
+  let offset = 0;
+  while ((offset = normalized.indexOf('\n', offset)) !== -1) {
+    lines += 1;
+    offset += 1;
+  }
+  return lines;
+}
+
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) {
+    const error = new Error('Operation aborted');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
 export async function scanSelectedRepository({
   state,
   repositoryHost,
   rootHandle,
   host = 'unknown',
+  signal,
   onProgress
 } = {}) {
   const nextState = ensureState(state);
   const validatedHost = assertRepositoryHost(repositoryHost);
+  const startedAt = Date.now();
 
   const result = await scanRepository({
     rootHandle,
     host: validatedHost,
+    signal,
+    additionalIgnorePatterns: nextState.options.ignorePatterns || '',
     onProgress: async (payload) => {
       nextState.repository.scanStatus = {
         phase: payload.phase,
@@ -62,7 +85,12 @@ export async function scanSelectedRepository({
 
   return {
     nextState,
-    result
+    result: {
+      ...result,
+      timings: {
+        totalMs: Date.now() - startedAt
+      }
+    }
   };
 }
 
@@ -70,6 +98,7 @@ export async function selectRepository({
   state,
   repositoryHost,
   host = 'unknown',
+  signal,
   onProgress
 } = {}) {
   const validatedHost = assertRepositoryHost(repositoryHost);
@@ -80,6 +109,7 @@ export async function selectRepository({
     repositoryHost: validatedHost,
     rootHandle,
     host,
+    signal,
     onProgress
   });
 }
@@ -87,6 +117,7 @@ export async function selectRepository({
 export async function refreshRepository({
   state,
   repositoryHost,
+  signal,
   onProgress
 } = {}) {
   const nextState = ensureState(state);
@@ -105,6 +136,7 @@ export async function refreshRepository({
     repositoryHost: validatedHost,
     rootHandle,
     host: nextState.session.host,
+    signal,
     onProgress
   });
 
@@ -129,8 +161,16 @@ export async function refreshRepository({
 export async function combineSelection({
   state,
   repositoryHost,
-  taskHost = null
+  taskHost = null,
+  signal,
+  onProgress
 } = {}) {
+  const startedAt = Date.now();
+  let readStartedAt = Date.now();
+  let readFinishedAt = readStartedAt;
+  let transformStartedAt = readStartedAt;
+  let transformFinishedAt = transformStartedAt;
+  let renderStartedAt = transformStartedAt;
   const nextState = ensureState(state);
   const validatedHost = assertRepositoryHost(repositoryHost);
   const rootHandle = nextState.session.repositoryHandle;
@@ -148,16 +188,29 @@ export async function combineSelection({
   }
 
   const selectedFiles = [];
+  readStartedAt = Date.now();
   for (const path of selectedPaths) {
+    throwIfAborted(signal);
     const entry = snapshot.index.textFilesByPath.get(path);
     if (!entry) {
       continue;
     }
 
-    const fileHandle = await validatedHost.resolvePath(rootHandle, path);
-    const rawContent = await validatedHost.readTextFile(fileHandle);
+    if (typeof onProgress === 'function') {
+      await onProgress({
+        phase: 'read-file',
+        currentPath: path,
+        processedFiles: selectedFiles.length,
+        totalFiles: selectedPaths.length
+      });
+    }
+
+    const fileHandle = await validatedHost.resolvePath(rootHandle, path, { signal });
+    throwIfAborted(signal);
+    const rawContent = await validatedHost.readTextFile(fileHandle, { signal });
+    throwIfAborted(signal);
     const content = rawContent.trim();
-    const lines = content.split('\n').length;
+    const lines = countLines(content);
 
     selectedFiles.push({
       path,
@@ -166,6 +219,7 @@ export async function combineSelection({
       lines
     });
   }
+  readFinishedAt = Date.now();
 
   const transformOptions = {
     removeComments: nextState.options.transforms?.removeComments === true,
@@ -185,6 +239,7 @@ export async function combineSelection({
   };
 
   let transformOutcome;
+  transformStartedAt = Date.now();
   if (hasEnabledTransforms(nextState.options)) {
     if (taskHost) {
       const validatedTaskHost = assertTaskHost(taskHost);
@@ -194,7 +249,8 @@ export async function combineSelection({
         try {
           transformOutcome = await validatedTaskHost.runTask({
             taskType: BUILD_TRANSFORM_RESULT_TASK,
-            payload: transformPayload
+            payload: transformPayload,
+            signal
           });
           transformExecution = {
             mode: 'background',
@@ -235,7 +291,10 @@ export async function combineSelection({
   } else {
     transformOutcome = await buildTransformResult(transformPayload);
   }
+  throwIfAborted(signal);
+  transformFinishedAt = Date.now();
 
+  renderStartedAt = Date.now();
   const bundle = buildPromptBundle({
     selectedFiles: transformOutcome.transformedFiles,
     options: {
@@ -254,11 +313,12 @@ export async function combineSelection({
   });
 
   const renderedText = renderPromptBundleText(bundle);
+  throwIfAborted(signal);
   nextState.output = createOutputState({
-    bundle,
     renderedText,
     fileName: nextState.output?.fileName || 'combined_files.txt'
   });
+  const renderFinishedAt = Date.now();
   const outputPresentation = {
     previewText: nextState.output.previewText,
     summaryText: nextState.output.summaryText,
@@ -274,7 +334,13 @@ export async function combineSelection({
     renderedText,
     outputPresentation,
     transformPlan: transformOutcome.plan,
-    transformExecution
+    transformExecution,
+    timings: {
+      readMs: readFinishedAt - readStartedAt,
+      transformMs: transformFinishedAt - transformStartedAt,
+      renderMs: renderFinishedAt - renderStartedAt,
+      totalMs: renderFinishedAt - startedAt
+    }
   };
 }
 

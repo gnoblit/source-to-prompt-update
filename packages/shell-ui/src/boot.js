@@ -34,6 +34,14 @@ function summarizeDiagnosticError(error) {
   };
 }
 
+function parseKilobyteInput(value, fallbackBytes) {
+  const numericValue = Number.parseFloat(String(value || '').trim());
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return fallbackBytes;
+  }
+  return Math.round(numericValue * 1024);
+}
+
 export function bootShellUI({
   bootApp,
   documentObject = globalThis.document,
@@ -54,6 +62,7 @@ export function bootShellUI({
   let diagnosticsEntries = [];
   let status = null;
   let hasSavedRepository = false;
+  let lastRenderDiagnosticAt = 0;
 
   const app = bootApp({
     windowObject,
@@ -81,6 +90,39 @@ export function bootShellUI({
     hosts.diagnosticsHost?.append?.({ event, details });
   }
 
+  function isInputElement(target) {
+    return Boolean(target) && (
+      (typeof HTMLInputElement !== 'undefined' && target instanceof HTMLInputElement) ||
+      target.tagName === 'INPUT'
+    );
+  }
+
+  function handleSelectionControlChange(event) {
+    const target = event.target;
+    if (!isInputElement(target)) {
+      return;
+    }
+
+    const action = target.dataset.action;
+    const path = target.dataset.path;
+    if (!action || !path) {
+      return;
+    }
+
+    if (action === 'file-select') {
+      controller.setFileSelection(path, target.checked, {
+        clearFilterSelections: !target.checked
+      });
+      return;
+    }
+
+    if (action === 'folder-select') {
+      controller.setFolderSelection(path, target.checked, {
+        clearFilterSelections: !target.checked
+      });
+    }
+  }
+
   async function refreshRestoreAvailability() {
     try {
       hasSavedRepository = await controller.hasSavedRepository();
@@ -91,6 +133,7 @@ export function bootShellUI({
   }
 
   function render() {
+    const renderStartedAt = Date.now();
     renderShell({
       documentObject,
       elements,
@@ -107,14 +150,39 @@ export function bootShellUI({
               .join('\n\n')
           : 'No diagnostics yet.'
     });
+    const renderMs = Date.now() - renderStartedAt;
+    const now = Date.now();
+    if (renderMs > 50 && now - lastRenderDiagnosticAt > 2000) {
+      lastRenderDiagnosticAt = now;
+      hosts.diagnosticsHost?.append?.({
+        event: 'render-slow',
+        details: {
+          renderMs
+        }
+      });
+    }
   }
 
   controller.subscribe((event) => {
-    if (event.type === 'repository-selected') {
+    if (event.type === 'repository-scanned') {
+      appendDiagnostic('scan-complete', {
+        rootName: event.payload.rootName,
+        timings: event.payload.timings || null
+      });
+      render();
+    } else if (event.type === 'repository-selected') {
       setStatus(`Loaded repository: ${event.payload.rootName}`, 'success');
+      appendDiagnostic('scan-complete', {
+        rootName: event.payload.rootName,
+        timings: event.payload.timings || null
+      });
       controller.rememberCurrentRepository().then(refreshRestoreAvailability).catch(() => {});
     } else if (event.type === 'repository-refreshed') {
       setStatus(`Refreshed repository: ${event.payload.rootName}`, 'success');
+      appendDiagnostic('scan-complete', {
+        rootName: event.payload.rootName,
+        timings: event.payload.timings || null
+      });
       controller.rememberCurrentRepository().then(refreshRestoreAvailability).catch(() => {});
     } else if (event.type === 'repository-restored') {
       setStatus(`Restored repository: ${event.payload.rootName}`, 'success');
@@ -197,6 +265,11 @@ export function bootShellUI({
     }
   });
 
+  elements.cancelTaskBtn?.addEventListener('click', () => {
+    const cancelled = controller.cancelActiveTask();
+    setStatus(cancelled ? 'Cancelling current task...' : 'No active task to cancel.', 'info');
+  });
+
   elements.toggleVisibleBtn.addEventListener('click', () => {
     controller.toggleAllVisibleTextFiles();
   });
@@ -207,6 +280,10 @@ export function bootShellUI({
 
   elements.filterInput.addEventListener('input', () => {
     controller.setFilterQuery(elements.filterInput.value);
+  });
+
+  elements.ignorePatternsInput?.addEventListener('input', () => {
+    controller.setIgnorePatterns(elements.ignorePatternsInput.value);
   });
 
   elements.profileNameInput.addEventListener('input', () => {
@@ -304,6 +381,26 @@ export function bootShellUI({
     });
   });
 
+  elements.guardrailWarningKbInput?.addEventListener('input', () => {
+    const current = controller.getViewModel().selectionInsights.guardrails;
+    controller.setGuardrails({
+      warningByteLimit: parseKilobyteInput(
+        elements.guardrailWarningKbInput.value,
+        current.warningByteLimit
+      )
+    });
+  });
+
+  elements.guardrailConfirmationKbInput?.addEventListener('input', () => {
+    const current = controller.getViewModel().selectionInsights.guardrails;
+    controller.setGuardrails({
+      confirmationByteLimit: parseKilobyteInput(
+        elements.guardrailConfirmationKbInput.value,
+        current.confirmationByteLimit
+      )
+    });
+  });
+
   elements.treeList.addEventListener('click', (event) => {
     const target = event.target;
     const button = target.closest('button[data-action="toggle-folder"]');
@@ -314,34 +411,30 @@ export function bootShellUI({
     controller.toggleFolderExpansion(button.dataset.path);
   });
 
-  elements.treeList.addEventListener('change', (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement)) {
-      return;
-    }
-
-    const action = target.dataset.action;
-    const path = target.dataset.path;
-    if (!action || !path) {
-      return;
-    }
-
-    if (action === 'file-select') {
-      controller.setFileSelection(path, target.checked, {
-        clearFilterSelections: !target.checked
-      });
-      return;
-    }
-
-    if (action === 'folder-select') {
-      controller.setFolderSelection(path, target.checked, {
-        clearFilterSelections: !target.checked
-      });
-    }
-  });
+  elements.treeList.addEventListener('change', handleSelectionControlChange);
+  elements.largestFilesList?.addEventListener('change', handleSelectionControlChange);
 
   elements.combineBtn.addEventListener('click', async () => {
     try {
+      const insights = controller.getViewModel().selectionInsights;
+      if (
+        insights.selectedTotalBytes >= insights.guardrails.confirmationByteLimit &&
+        typeof windowObject?.confirm === 'function'
+      ) {
+        const confirmed = windowObject.confirm(
+          `This selection is ${insights.selectedFileCount} files, ${Math.round(insights.selectedTotalBytes / 1024)} KB, and roughly ${insights.estimatedTokens.toLocaleString()} tokens. Continue?`
+        );
+        if (!confirmed) {
+          setStatus('Prompt bundle generation cancelled before combine.', 'info');
+          appendDiagnostic('combine-preflight-cancelled', {
+            selectionInsights: insights
+          });
+          return;
+        }
+      } else if (insights.selectedTotalBytes >= insights.guardrails.warningByteLimit) {
+        setStatus('Selection is above the warning threshold; generating carefully.', 'info');
+      }
+
       appendDiagnostic('combine-click');
       const result = await controller.combineSelection();
       if (elements.outputTextarea) {
@@ -350,7 +443,8 @@ export function bootShellUI({
       }
       appendDiagnostic('combine-result', {
         transformPlan: result.transformPlan,
-        transformExecution: result.transformExecution
+        transformExecution: result.transformExecution,
+        timings: result.timings || null
       });
     } catch (error) {
       const normalized = controller.normalizeError(error, 'Combine selection');

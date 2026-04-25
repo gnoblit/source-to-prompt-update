@@ -2,7 +2,7 @@ import { runWorkerTask } from '../../host-contracts/src/web-worker-task-runner.j
 
 export function createBrowserTaskHost({ createWorkerForTask = null } = {}) {
   return {
-    async runTask({ workerFactory, taskType = null, payload, timeoutMs = 90000 } = {}) {
+    async runTask({ workerFactory, taskType = null, payload, signal, timeoutMs = 90000 } = {}) {
       const resolvedWorkerFactory =
         workerFactory ||
         (typeof createWorkerForTask === 'function' ? createWorkerForTask(taskType) : null);
@@ -15,6 +15,7 @@ export function createBrowserTaskHost({ createWorkerForTask = null } = {}) {
         workerFactory: resolvedWorkerFactory,
         taskType,
         payload,
+        signal,
         timeoutMs
       });
     },

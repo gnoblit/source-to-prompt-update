@@ -31,7 +31,12 @@ export function createProfileSnapshot({ name, state, repositorySnapshot } = {}) 
       preambleMode: state?.options?.preambleMode || 'custom',
       customPreamble: state?.options?.customPreamble || '',
       includeGoal: state?.options?.includeGoal === true,
-      goalText: state?.options?.goalText || ''
+      goalText: state?.options?.goalText || '',
+      ignorePatterns: state?.options?.ignorePatterns || '',
+      guardrails: {
+        warningByteLimit: state?.options?.guardrails?.warningByteLimit,
+        confirmationByteLimit: state?.options?.guardrails?.confirmationByteLimit
+      }
     },
     transformOptions: {
       removeComments: state?.options?.transforms?.removeComments === true,
@@ -122,6 +127,11 @@ export function applyProfileToState({ profile, state, repositoryIndex } = {}) {
         customPreamble: normalizedProfile.promptOptions.customPreamble || '',
         includeGoal: normalizedProfile.promptOptions.includeGoal === true,
         goalText: normalizedProfile.promptOptions.goalText || '',
+        ignorePatterns: normalizedProfile.promptOptions.ignorePatterns || state.options.ignorePatterns || '',
+        guardrails: {
+          ...(state.options.guardrails || {}),
+          ...(normalizedProfile.promptOptions.guardrails || {})
+        },
         transforms: {
           removeComments: normalizedProfile.transformOptions.removeComments === true,
           minifyOutput: normalizedProfile.transformOptions.minifyOutput === true

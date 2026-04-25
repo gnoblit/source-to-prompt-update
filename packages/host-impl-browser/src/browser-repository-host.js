@@ -19,6 +19,14 @@ function isLikelyProtectedFolderError(error) {
   );
 }
 
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) {
+    const error = new Error('Operation aborted');
+    error.name = 'AbortError';
+    throw error;
+  }
+}
+
 function createRequestPromise(request) {
   return new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
@@ -200,9 +208,10 @@ export function createBrowserRepositoryHost({
       return permission === 'granted' ? handle : null;
     },
 
-    async listDirectory(handle) {
+    async listDirectory(handle, options = {}) {
       const entries = [];
       for await (const entry of handle.values()) {
+        throwIfAborted(options.signal);
         entries.push({
           name: entry.name,
           kind: entry.kind,
@@ -212,13 +221,17 @@ export function createBrowserRepositoryHost({
       return entries;
     },
 
-    async readTextFile(handle) {
+    async readTextFile(handle, options = {}) {
+      throwIfAborted(options.signal);
       const file = await handle.getFile();
+      throwIfAborted(options.signal);
       return file.text();
     },
 
-    async readFileMetadata(handle) {
+    async readFileMetadata(handle, options = {}) {
+      throwIfAborted(options.signal);
       const file = await handle.getFile();
+      throwIfAborted(options.signal);
       return {
         size: file.size,
         type: file.type,
@@ -226,7 +239,7 @@ export function createBrowserRepositoryHost({
       };
     },
 
-    async resolvePath(rootHandle, path) {
+    async resolvePath(rootHandle, path, options = {}) {
       const parts = String(path)
         .replace(/\\/g, '/')
         .split('/')
@@ -238,6 +251,7 @@ export function createBrowserRepositoryHost({
 
       let current = rootHandle;
       for (let index = 0; index < parts.length; index += 1) {
+        throwIfAborted(options.signal);
         const segment = parts[index];
         const isLast = index === parts.length - 1;
 

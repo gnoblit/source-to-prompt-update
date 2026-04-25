@@ -120,3 +120,21 @@ test('tracks unreadable text files without crashing the scan', async () => {
   assert.equal(result.index.textFilesByPath.has('secret.ts'), false);
   assert.deepEqual(listTextFilePaths(result.index), ['safe.ts']);
 });
+
+test('applies app-level ignore patterns alongside repository ignores', async () => {
+  const root = createDirectory('project', [
+    createDirectory('fixtures', [
+      createFile('large.ts', 'export const fixture = true;\n')
+    ]),
+    createFile('safe.ts', 'export const safeValue = true;')
+  ]);
+
+  const result = await scanRepository({
+    rootHandle: root,
+    host: createFakeRepositoryHost(),
+    additionalIgnorePatterns: 'fixtures/**'
+  });
+
+  assert.equal(result.ignoreSource, 'default+custom');
+  assert.deepEqual(listTextFilePaths(result.index), ['safe.ts']);
+});

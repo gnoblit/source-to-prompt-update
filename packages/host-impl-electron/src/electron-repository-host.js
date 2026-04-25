@@ -6,6 +6,12 @@ function createCancelledError(message) {
   return error;
 }
 
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) {
+    throw createCancelledError('Operation aborted');
+  }
+}
+
 export function createElectronRepositoryHost({ bridge } = {}) {
   const electronBridge = normalizeElectronBridge(bridge);
 
@@ -71,20 +77,32 @@ export function createElectronRepositoryHost({ bridge } = {}) {
       return electronBridge.call('restoreRepository', { handle, options });
     },
 
-    async listDirectory(handle) {
-      return electronBridge.call('listDirectory', { handle });
+    async listDirectory(handle, options = {}) {
+      throwIfAborted(options.signal);
+      const result = await electronBridge.call('listDirectory', { handle });
+      throwIfAborted(options.signal);
+      return result;
     },
 
-    async readTextFile(handle) {
-      return electronBridge.call('readTextFile', { handle });
+    async readTextFile(handle, options = {}) {
+      throwIfAborted(options.signal);
+      const result = await electronBridge.call('readTextFile', { handle });
+      throwIfAborted(options.signal);
+      return result;
     },
 
-    async readFileMetadata(handle) {
-      return electronBridge.call('readFileMetadata', { handle });
+    async readFileMetadata(handle, options = {}) {
+      throwIfAborted(options.signal);
+      const result = await electronBridge.call('readFileMetadata', { handle });
+      throwIfAborted(options.signal);
+      return result;
     },
 
-    async resolvePath(rootHandle, path) {
-      return electronBridge.call('resolvePath', { rootHandle, path });
+    async resolvePath(rootHandle, path, options = {}) {
+      throwIfAborted(options.signal);
+      const result = await electronBridge.call('resolvePath', { rootHandle, path });
+      throwIfAborted(options.signal);
+      return result;
     }
   };
 }

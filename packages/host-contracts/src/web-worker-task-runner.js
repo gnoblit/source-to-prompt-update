@@ -2,6 +2,7 @@ export function runWorkerTask({
   workerFactory,
   taskType,
   payload,
+  signal,
   timeoutMs = 90000
 } = {}) {
   if (typeof workerFactory !== 'function') {
@@ -24,7 +25,15 @@ export function runWorkerTask({
 
       worker.removeEventListener?.('message', onMessage);
       worker.removeEventListener?.('error', onError);
+      signal?.removeEventListener?.('abort', onAbort);
       worker.terminate?.();
+    };
+
+    const onAbort = () => {
+      cleanup();
+      const error = new Error('Worker task aborted');
+      error.name = 'AbortError';
+      reject(error);
     };
 
     const onMessage = (event) => {
@@ -46,6 +55,11 @@ export function runWorkerTask({
 
     worker.addEventListener?.('message', onMessage);
     worker.addEventListener?.('error', onError);
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener?.('abort', onAbort);
     timeoutHandle = setTimeout(() => {
       cleanup();
       reject(new Error('Worker task timed out'));

@@ -37,9 +37,8 @@ function buildAsciiTreeObject(selectedFiles) {
   return root;
 }
 
-function printAsciiTree(node, prefix = '') {
+function printAsciiTree(node, prefix = '', lines = []) {
   const keys = Object.keys(node).filter((key) => !key.startsWith('__')).sort();
-  let lines = [];
 
   keys.forEach((key, index) => {
     const value = node[key];
@@ -54,7 +53,7 @@ function printAsciiTree(node, prefix = '') {
 
     lines.push(`${prefix}${connector}${key}/`);
     const nextPrefix = prefix + (last ? '    ' : '│   ');
-    lines = lines.concat(printAsciiTree(value, nextPrefix));
+    printAsciiTree(value, nextPrefix, lines);
   });
 
   return lines;
